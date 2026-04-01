@@ -58,11 +58,16 @@ def start_daemon() -> None:
     # Open log file for stdout/stderr
     log = open(log_file, "a")
     
+    # Set environment variable to hide Dock icon
+    env = os.environ.copy()
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
+    
     process = subprocess.Popen(
         [python_path, "-m", "navi.daemon", "run"],
         stdout=log,
         stderr=log,
         start_new_session=True,  # Detach from terminal
+        env=env,
     )
     
     # Write PID file
@@ -105,6 +110,18 @@ def stop_daemon() -> None:
         pid_file.unlink(missing_ok=True)
 
 
+def _hide_dock_icon():
+    """Hide the Dock icon for this process using PyObjC."""
+    try:
+        from AppKit import NSApplication, NSApplicationActivationPolicyAccessory
+        app = NSApplication.sharedApplication()
+        app.setActivationPolicy_(NSApplicationActivationPolicyAccessory)
+    except ImportError:
+        pass  # PyObjC not available, skip
+    except Exception:
+        pass  # Any other error, skip
+
+
 def run_daemon() -> None:
     """
     Run the daemon (called by the subprocess).
@@ -112,6 +129,9 @@ def run_daemon() -> None:
     This is the main entry point for the background process.
     """
     import signal
+    
+    # Hide Dock icon BEFORE any other AppKit/GUI imports
+    _hide_dock_icon()
     
     from navi.config import load_config
     from navi.hotkey import HotkeyListener

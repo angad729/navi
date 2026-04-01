@@ -212,7 +212,7 @@ def _build_note_content(
         f"title: \"{title}\"",
         f"created: {datetime.now().isoformat()}",
         "source: navi",
-        "type: voice-note",
+        "type: note",
     ]
     
     if metadata:
@@ -243,7 +243,7 @@ def get_recent_notes(
     limit: int = 10,
 ) -> list[dict[str, Any]]:
     """
-    Get list of recent voice notes.
+    Get list of recent notes.
     
     Args:
         config: Navi configuration

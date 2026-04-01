@@ -5,14 +5,14 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "navi-voice"
 version = "0.1.0"
-description = "A hotkey-triggered voice note capture tool with local Whisper transcription"
+description = "Think out loud, capture as notes — hotkey-triggered speech-to-text with local Whisper transcription"
 readme = "README.md"
 license = {text = "MIT"}
 requires-python = ">=3.11,<3.14"
 authors = [
     {name = "angad729"}
 ]
-keywords = ["voice", "notes", "whisper", "transcription", "obsidian", "macos"]
+keywords = ["speech-to-text", "notes", "whisper", "transcription", "obsidian", "macos"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Environment :: MacOS X",

@@ -63,9 +63,9 @@ def _install_ffmpeg() -> bool:
 @click.version_option(version="0.1.0", prog_name="navi")
 def main():
     """
-    🧚 Navi - Voice notes that just work.
+    🧚 Navi - Think out loud. Capture as notes.
     
-    Press ⌘⇧N to start/stop recording. Your voice is transcribed locally
+    Press ⌘⇧N to start/stop recording. Your speech is transcribed locally
     with Whisper, cleaned up with your chosen LLM, and saved to your Obsidian vault.
     
     Get started with: navi setup
@@ -78,7 +78,7 @@ def setup():
     """Interactive first-time configuration wizard."""
     click.echo()
     click.echo(click.style("🧚 Welcome to Navi!", fg="cyan", bold=True))
-    click.echo(click.style("   Let's set up your voice note capture.\n", fg="cyan"))
+    click.echo(click.style("   Think out loud. Capture as notes.\n", fg="cyan"))
     
     # Step 0: Check dependencies (ffmpeg)
     click.echo(click.style("Checking dependencies...", fg="yellow", bold=True))
@@ -172,7 +172,7 @@ def setup():
     
     # Optional subfolder
     subfolder = click.prompt(
-        "Subfolder for voice notes (leave empty for vault root)",
+        "Subfolder for notes (leave empty for vault root)",
         default="",
         show_default=False
     )
@@ -204,7 +204,7 @@ def setup():
     
     # Step 4: LLM Provider
     click.echo(click.style("Step 4: Transcript Cleanup", fg="yellow", bold=True))
-    click.echo("Choose how to clean up your voice transcripts:\n")
+    click.echo("Choose how to clean up your transcripts:\n")
     
     providers = list(LLM_PROVIDERS.keys())
     for i, key in enumerate(providers, 1):

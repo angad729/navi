@@ -1,16 +1,12 @@
 # 🧚 Navi
 
-**Voice notes that just work.**
+**Think out loud. Capture as notes.**
 
-Press a hotkey, speak your thoughts, and Navi transcribes them locally with Whisper, cleans them up with an LLM of your choice, and saves them to your Obsidian vault.
+Press a hotkey, speak your thoughts, and Navi transcribes them locally with Whisper, cleans them up with an LLM of your choice, and saves them as Markdown to your Obsidian vault.
 
 ![macOS](https://img.shields.io/badge/macOS-Apple_Silicon-000000?style=flat&logo=apple&logoColor=white)
 ![Python](https://img.shields.io/badge/Python-3.11--3.13-blue?style=flat&logo=python&logoColor=white)
 ![License](https://img.shields.io/badge/License-MIT-green.svg)
-
-<p align="center">
-  <img src="docs/demo.gif" alt="Navi Demo" width="600">
-</p>
 
 ## ✨ Features
 
@@ -19,8 +15,8 @@ Press a hotkey, speak your thoughts, and Navi transcribes them locally with Whis
 | 🎙️ **Hotkey Triggered** | Press `⌘⇧N` to start/stop recording. No UI to navigate. |
 | 🔒 **Privacy First** | Whisper runs 100% locally on your Mac. Your voice never leaves your device. |
 | 🧠 **Flexible LLM** | Choose Ollama (local/free), OpenAI, Anthropic, or skip cleanup entirely. |
-| 🧹 **Smart Cleanup** | Removes filler words, fixes incomplete sentences, extracts titles. |
-| 📝 **Obsidian Ready** | Notes saved with YAML frontmatter, ready for your knowledge graph. |
+| 🧹 **Smart Cleanup** | Removes filler words, fixes incomplete sentences, extracts titles automatically. |
+| 📝 **Obsidian Ready** | Notes saved as Markdown with YAML frontmatter, ready for your knowledge graph. |
 | 🔔 **Full Feedback** | Menubar icon, sound effects, and macOS notifications. |
 | 🚀 **Auto-Start** | Optionally starts on login so it's always ready. |
 | 🔐 **Secure** | API keys stored in macOS Keychain, never in plain text. |
@@ -71,9 +67,9 @@ The wizard will guide you through:
 navi start
 ```
 
-### 4. Record
+### 4. Capture
 
-Press **⌘⇧N** (or your custom hotkey) to start recording. Press again to stop. Your note appears in Obsidian! ✨
+Press **⌘⇧N** (or your custom hotkey) to start recording. Press again to stop. Your thoughts are transcribed and saved to Obsidian! ✨
 
 ## 🧠 LLM Providers
 
@@ -116,7 +112,7 @@ When running, Navi shows an icon in your menubar:
 
 | Icon | Status |
 |------|--------|
-| 🧚 | Idle — ready to record |
+| 🧚 | Idle — ready to capture |
 | 🔴 | Recording in progress |
 | ⏳ | Processing your recording |
 
@@ -131,7 +127,7 @@ Notes are saved as Markdown with YAML frontmatter:
 title: "Meeting with Design Team"
 created: 2026-04-02T10:30:00
 source: navi
-type: voice-note
+type: note
 duration: 45.2s
 language: en
 whisper_model: large-v3
@@ -163,7 +159,7 @@ llm:
 
 output:
   vault_path: /path/to/your/obsidian/vault
-  subfolder: Voice Notes
+  subfolder: Notes
   filename_template: "{title} - {timestamp}"
 
 feedback:
