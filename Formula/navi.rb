@@ -1,7 +1,7 @@
 class Navi < Formula
   include Language::Python::Virtualenv
 
-  desc "Voice notes that just work - hotkey capture with local Whisper transcription"
+  desc "Think out loud, capture as notes - hotkey-triggered speech-to-text with local Whisper"
   homepage "https://github.com/angad729/navi"
   url "https://files.pythonhosted.org/packages/source/n/navi-voice/navi-voice-0.1.0.tar.gz"
   sha256 "PLACEHOLDER_SHA256"  # Update after PyPI release
