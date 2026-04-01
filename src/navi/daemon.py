@@ -1,0 +1,169 @@
+"""
+Daemon management for Navi.
+
+Handles starting, stopping, and monitoring the background process.
+"""
+
+import os
+import signal
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+from navi.config import DEFAULT_CONFIG_DIR, load_config
+
+
+def get_pid_file() -> Path:
+    """Get path to PID file."""
+    return DEFAULT_CONFIG_DIR / "navi.pid"
+
+
+def get_log_file() -> Path:
+    """Get path to log file."""
+    return DEFAULT_CONFIG_DIR / "logs" / "navi.log"
+
+
+def is_daemon_running() -> bool:
+    """Check if the daemon is currently running."""
+    pid_file = get_pid_file()
+    
+    if not pid_file.exists():
+        return False
+    
+    try:
+        pid = int(pid_file.read_text().strip())
+        # Check if process exists
+        os.kill(pid, 0)
+        return True
+    except (ValueError, ProcessLookupError, PermissionError):
+        # PID file exists but process doesn't - clean up
+        pid_file.unlink(missing_ok=True)
+        return False
+
+
+def start_daemon() -> None:
+    """Start the Navi daemon as a background process."""
+    if is_daemon_running():
+        return
+    
+    # Ensure log directory exists
+    log_file = get_log_file()
+    log_file.parent.mkdir(parents=True, exist_ok=True)
+    
+    # Start the daemon process
+    # We use the entry point to run the actual daemon
+    python_path = sys.executable
+    
+    # Open log file for stdout/stderr
+    log = open(log_file, "a")
+    
+    process = subprocess.Popen(
+        [python_path, "-m", "navi.daemon", "run"],
+        stdout=log,
+        stderr=log,
+        start_new_session=True,  # Detach from terminal
+    )
+    
+    # Write PID file
+    pid_file = get_pid_file()
+    pid_file.write_text(str(process.pid))
+    
+    # Give it a moment to start
+    time.sleep(0.5)
+
+
+def stop_daemon() -> None:
+    """Stop the Navi daemon."""
+    pid_file = get_pid_file()
+    
+    if not pid_file.exists():
+        return
+    
+    try:
+        pid = int(pid_file.read_text().strip())
+        
+        # Send SIGTERM for graceful shutdown
+        os.kill(pid, signal.SIGTERM)
+        
+        # Wait for process to terminate
+        for _ in range(50):  # Wait up to 5 seconds
+            try:
+                os.kill(pid, 0)
+                time.sleep(0.1)
+            except ProcessLookupError:
+                break
+        else:
+            # Force kill if still running
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+    except (ValueError, ProcessLookupError, PermissionError):
+        pass
+    finally:
+        pid_file.unlink(missing_ok=True)
+
+
+def run_daemon() -> None:
+    """
+    Run the daemon (called by the subprocess).
+    
+    This is the main entry point for the background process.
+    """
+    import signal
+    
+    from navi.config import load_config
+    from navi.hotkey import HotkeyListener
+    from navi.recorder import AudioRecorder
+    from navi.menubar import MenubarApp
+    
+    config = load_config()
+    
+    # Set up signal handlers for graceful shutdown
+    def handle_shutdown(signum, frame):
+        cleanup()
+        sys.exit(0)
+    
+    signal.signal(signal.SIGTERM, handle_shutdown)
+    signal.signal(signal.SIGINT, handle_shutdown)
+    
+    # Initialize components
+    recorder = AudioRecorder(config)
+    hotkey_listener = HotkeyListener(config, recorder)
+    
+    # Track components for cleanup
+    components = {
+        "recorder": recorder,
+        "hotkey_listener": hotkey_listener,
+    }
+    
+    def cleanup():
+        """Clean up all components."""
+        if recorder.is_recording:
+            recorder.stop_recording()
+        hotkey_listener.stop()
+    
+    # Start hotkey listener in a thread
+    hotkey_listener.start()
+    
+    # Check if menubar is enabled
+    if config["feedback"]["menubar_icon"]:
+        # Run menubar app (this blocks)
+        app = MenubarApp(config, recorder, hotkey_listener)
+        components["menubar"] = app
+        app.run()
+    else:
+        # No menubar - just run hotkey listener
+        try:
+            while True:
+                time.sleep(1)
+        except KeyboardInterrupt:
+            cleanup()
+
+
+if __name__ == "__main__":
+    import sys
+    
+    if len(sys.argv) > 1 and sys.argv[1] == "run":
+        run_daemon()

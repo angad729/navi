@@ -1,0 +1,257 @@
+"""
+Configuration management for Navi.
+
+Handles loading, saving, and validating user configuration.
+Config is stored at ~/.config/navi/config.yaml
+"""
+
+import os
+from pathlib import Path
+from typing import Any, Optional
+
+import yaml
+
+DEFAULT_CONFIG_DIR = Path.home() / ".config" / "navi"
+DEFAULT_CONFIG_FILE = DEFAULT_CONFIG_DIR / "config.yaml"
+DEFAULT_LOG_DIR = DEFAULT_CONFIG_DIR / "logs"
+DEFAULT_TEMP_DIR = DEFAULT_CONFIG_DIR / "temp"
+
+# Whisper model recommendations based on hardware
+WHISPER_MODELS = {
+    "large-v3": {
+        "name": "large-v3",
+        "description": "Highest accuracy, requires M1 Pro/Max or better, 16GB+ RAM",
+        "min_ram_gb": 16,
+        "recommended_for": "M1 Pro/Max, M2 Pro/Max, M3 Pro/Max, M4 Pro/Max",
+    },
+    "medium": {
+        "name": "medium",
+        "description": "Good balance of speed and accuracy, 8GB+ RAM",
+        "min_ram_gb": 8,
+        "recommended_for": "M1/M2/M3/M4 base models",
+    },
+    "small": {
+        "name": "small",
+        "description": "Faster, lower accuracy, works on most Macs",
+        "min_ram_gb": 4,
+        "recommended_for": "Older Macs or low RAM systems",
+    },
+    "base": {
+        "name": "base",
+        "description": "Fastest, lowest accuracy",
+        "min_ram_gb": 2,
+        "recommended_for": "When speed matters more than accuracy",
+    },
+}
+
+DEFAULT_CONFIG = {
+    "version": 1,
+    "hotkey": {
+        "modifiers": ["cmd", "shift"],
+        "key": "n",
+    },
+    "whisper": {
+        "model": "large-v3",
+        "language": "en",  # None for auto-detect
+    },
+    "ollama": {
+        "model": "llama3.2",
+        "host": "http://localhost:11434",
+        "cleanup_prompt": """Clean up this voice transcription. Fix:
+- Remove filler words (um, uh, like, you know)
+- Fix false starts and incomplete sentences
+- Add proper punctuation and paragraphs
+- Keep the meaning and tone intact
+- Extract a concise title (max 6 words)
+
+Respond in this exact format:
+TITLE: <extracted title>
+---
+<cleaned transcript>""",
+    },
+    "output": {
+        "destination": "obsidian",
+        "vault_path": "",  # Set during setup
+        "subfolder": "",  # Optional subfolder within vault
+        "filename_template": "{title} - {timestamp}",
+        "timestamp_format": "%Y-%m-%d-%H%M%S",
+    },
+    "feedback": {
+        "sounds": True,
+        "notifications": True,
+        "menubar_icon": True,
+    },
+    "daemon": {
+        "auto_start": False,
+    },
+}
+
+
+class ConfigError(Exception):
+    """Raised when there's a configuration error."""
+
+    pass
+
+
+def ensure_config_dirs() -> None:
+    """Create config directories if they don't exist."""
+    DEFAULT_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    DEFAULT_LOG_DIR.mkdir(parents=True, exist_ok=True)
+    DEFAULT_TEMP_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def load_config(config_path: Optional[Path] = None) -> dict[str, Any]:
+    """
+    Load configuration from file.
+    
+    Args:
+        config_path: Optional path to config file. Defaults to ~/.config/navi/config.yaml
+        
+    Returns:
+        Configuration dictionary
+        
+    Raises:
+        ConfigError: If config file is invalid
+    """
+    path = config_path or DEFAULT_CONFIG_FILE
+    
+    if not path.exists():
+        return DEFAULT_CONFIG.copy()
+    
+    try:
+        with open(path, "r") as f:
+            user_config = yaml.safe_load(f) or {}
+    except yaml.YAMLError as e:
+        raise ConfigError(f"Invalid config file: {e}")
+    
+    # Merge with defaults (user config takes precedence)
+    config = _deep_merge(DEFAULT_CONFIG.copy(), user_config)
+    return config
+
+
+def save_config(config: dict[str, Any], config_path: Optional[Path] = None) -> None:
+    """
+    Save configuration to file.
+    
+    Args:
+        config: Configuration dictionary to save
+        config_path: Optional path to config file. Defaults to ~/.config/navi/config.yaml
+    """
+    ensure_config_dirs()
+    path = config_path or DEFAULT_CONFIG_FILE
+    
+    with open(path, "w") as f:
+        yaml.dump(config, f, default_flow_style=False, sort_keys=False)
+
+
+def validate_config(config: dict[str, Any]) -> list[str]:
+    """
+    Validate configuration and return list of errors.
+    
+    Args:
+        config: Configuration dictionary to validate
+        
+    Returns:
+        List of validation error messages (empty if valid)
+    """
+    errors = []
+    
+    # Check vault path
+    vault_path = config.get("output", {}).get("vault_path", "")
+    if not vault_path:
+        errors.append("Obsidian vault path is not set. Run 'navi setup' to configure.")
+    elif not Path(vault_path).exists():
+        errors.append(f"Obsidian vault path does not exist: {vault_path}")
+    
+    # Check Whisper model
+    whisper_model = config.get("whisper", {}).get("model", "")
+    if whisper_model not in WHISPER_MODELS:
+        errors.append(f"Invalid Whisper model: {whisper_model}. Valid options: {list(WHISPER_MODELS.keys())}")
+    
+    # Check hotkey
+    hotkey = config.get("hotkey", {})
+    if not hotkey.get("key"):
+        errors.append("Hotkey key is not set")
+    
+    return errors
+
+
+def get_config_value(config: dict[str, Any], key_path: str, default: Any = None) -> Any:
+    """
+    Get a nested config value using dot notation.
+    
+    Args:
+        config: Configuration dictionary
+        key_path: Dot-separated path to value (e.g., "whisper.model")
+        default: Default value if not found
+        
+    Returns:
+        Config value or default
+    """
+    keys = key_path.split(".")
+    value = config
+    
+    for key in keys:
+        if isinstance(value, dict) and key in value:
+            value = value[key]
+        else:
+            return default
+    
+    return value
+
+
+def set_config_value(config: dict[str, Any], key_path: str, value: Any) -> dict[str, Any]:
+    """
+    Set a nested config value using dot notation.
+    
+    Args:
+        config: Configuration dictionary
+        key_path: Dot-separated path to value (e.g., "whisper.model")
+        value: Value to set
+        
+    Returns:
+        Updated config dictionary
+    """
+    keys = key_path.split(".")
+    current = config
+    
+    for key in keys[:-1]:
+        if key not in current:
+            current[key] = {}
+        current = current[key]
+    
+    current[keys[-1]] = value
+    return config
+
+
+def _deep_merge(base: dict, override: dict) -> dict:
+    """
+    Deep merge two dictionaries.
+    
+    Args:
+        base: Base dictionary
+        override: Dictionary with override values
+        
+    Returns:
+        Merged dictionary
+    """
+    result = base.copy()
+    
+    for key, value in override.items():
+        if key in result and isinstance(result[key], dict) and isinstance(value, dict):
+            result[key] = _deep_merge(result[key], value)
+        else:
+            result[key] = value
+    
+    return result
+
+
+def config_exists() -> bool:
+    """Check if config file exists."""
+    return DEFAULT_CONFIG_FILE.exists()
+
+
+def get_temp_audio_path() -> Path:
+    """Get path for temporary audio file."""
+    ensure_config_dirs()
+    return DEFAULT_TEMP_DIR / "recording.wav"
