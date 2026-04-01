@@ -130,8 +130,8 @@ class FeedbackManager:
             duration_str = f"{int(duration)}s" if duration < 60 else f"{int(duration // 60)}m {int(duration % 60)}s"
             send_notification(
                 title="🧚 Navi",
-                message=f"Processing {duration_str} of audio...",
-                subtitle="Transcribing with Whisper",
+                message="Transcribing...",
+                subtitle=f"Processing {duration_str} of audio",
             )
     
     def note_saved(self, filepath: Path, title: str) -> None:
