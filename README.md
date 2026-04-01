@@ -2,155 +2,170 @@
 
 **Voice notes that just work.**
 
-Press a hotkey, speak your thoughts, and Navi transcribes them locally with Whisper, cleans them up with a local LLM, and saves them to your Obsidian vault. No cloud services, no subscriptions, no fuss.
+Press a hotkey, speak your thoughts, and Navi transcribes them locally with Whisper, cleans them up with an LLM of your choice, and saves them to your Obsidian vault.
 
-![macOS](https://img.shields.io/badge/macOS-000000?style=flat&logo=apple&logoColor=white)
-![Python 3.11+](https://img.shields.io/badge/Python-3.11+-blue?style=flat&logo=python&logoColor=white)
-![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)
+![macOS](https://img.shields.io/badge/macOS-Apple_Silicon-000000?style=flat&logo=apple&logoColor=white)
+![Python](https://img.shields.io/badge/Python-3.11--3.13-blue?style=flat&logo=python&logoColor=white)
+![License](https://img.shields.io/badge/License-MIT-green.svg)
+
+<p align="center">
+  <img src="docs/demo.gif" alt="Navi Demo" width="600">
+</p>
 
 ## ✨ Features
 
-- **🎙️ Hotkey Triggered** — Press `⌘⇧N` to start/stop recording. No UI to navigate.
-- **🔒 100% Local** — Whisper transcription and Ollama cleanup run entirely on your Mac.
-- **🧹 Smart Cleanup** — Removes filler words, fixes incomplete sentences, adds punctuation.
-- **📝 Obsidian Integration** — Notes saved directly to your vault with YAML frontmatter.
-- **🔔 Full Feedback** — Menubar icon, sound effects, and macOS notifications.
-- **🚀 Auto-Start** — Optionally starts on login so it's always ready.
+| Feature | Description |
+|---------|-------------|
+| 🎙️ **Hotkey Triggered** | Press `⌘⇧N` to start/stop recording. No UI to navigate. |
+| 🔒 **Privacy First** | Whisper runs 100% locally on your Mac. Your voice never leaves your device. |
+| 🧠 **Flexible LLM** | Choose Ollama (local/free), OpenAI, Anthropic, or skip cleanup entirely. |
+| 🧹 **Smart Cleanup** | Removes filler words, fixes incomplete sentences, extracts titles. |
+| 📝 **Obsidian Ready** | Notes saved with YAML frontmatter, ready for your knowledge graph. |
+| 🔔 **Full Feedback** | Menubar icon, sound effects, and macOS notifications. |
+| 🚀 **Auto-Start** | Optionally starts on login so it's always ready. |
+| 🔐 **Secure** | API keys stored in macOS Keychain, never in plain text. |
 
 ## 📋 Requirements
 
-- **macOS** (Apple Silicon recommended for best performance)
-- **Python 3.11+**
-- **Ollama** (for transcript cleanup)
-- **16GB+ RAM** recommended for Whisper Large-v3
+- **macOS** with Apple Silicon (M1/M2/M3/M4)
+- **Python 3.11, 3.12, or 3.13** (⚠️ Python 3.14 not yet supported)
+- **16GB+ RAM** recommended for Whisper large-v3
+- **Homebrew** for installing dependencies
 
-## 🚀 Installation
+## 🚀 Quick Start
 
-### Option 1: Homebrew (Recommended)
-
-```bash
-brew tap angad729/navi
-brew install navi
-```
-
-### Option 2: pipx
+### 1. Install
 
 ```bash
-pipx install navi-voice
+# Clone the repo
+git clone https://github.com/angad729/navi.git
+cd navi
+
+# Create virtual environment with Python 3.12
+python3.12 -m venv .venv
+source .venv/bin/activate
+
+# Install Navi
+pip install -e .
 ```
 
-### Option 3: pip
+### 2. Setup
+
+Run the interactive setup wizard:
 
 ```bash
-pip install navi-voice
+navi setup
 ```
 
-### Post-Install Setup
+The wizard will guide you through:
+1. ✅ Installing dependencies (ffmpeg)
+2. 🎤 Choosing a Whisper model for your hardware
+3. 📁 Configuring your Obsidian vault path
+4. ⌨️ Setting your hotkey preference
+5. 🧠 Selecting your LLM provider
+6. 🔔 Configuring notifications & sounds
 
-1. **Install Ollama** (if not already installed):
-   ```bash
-   brew install ollama
-   ollama pull llama3.2
-   ```
-
-2. **Run the setup wizard**:
-   ```bash
-   navi setup
-   ```
-
-3. **Start Navi**:
-   ```bash
-   navi start
-   ```
-
-4. **Press `⌘⇧N`** to start your first recording!
-
-## 🎯 Usage
-
-### Basic Workflow
-
-1. Press `⌘⇧N` — Recording starts (you'll hear a chime)
-2. Speak your thoughts naturally
-3. Press `⌘⇧N` again — Recording stops
-4. Wait a few seconds — Navi transcribes and cleans up your note
-5. Check your Obsidian vault — Your note is there with a title and clean formatting
-
-### CLI Commands
+### 3. Start
 
 ```bash
-navi setup      # First-time configuration wizard
-navi start      # Start the background daemon
-navi stop       # Stop the daemon
-navi status     # Check if Navi is running
-navi install    # Enable auto-start on login
-navi uninstall  # Disable auto-start
-navi config     # Show current configuration
-navi test       # Test microphone and transcription
+navi start
 ```
 
-### Menubar
+### 4. Record
 
-When running, Navi shows a 🧚 icon in your menubar:
-- **🧚** — Idle, ready to record
-- **🔴** — Currently recording
-- **⏳** — Processing your recording
+Press **⌘⇧N** (or your custom hotkey) to start recording. Press again to stop. Your note appears in Obsidian! ✨
 
-Click the icon for quick access to:
-- Recent notes
-- Open Obsidian vault
-- Settings
-- Quit
+## 🧠 LLM Providers
 
-## ⚙️ Configuration
+Choose how your transcripts get cleaned up:
 
-Configuration is stored at `~/.config/navi/config.yaml`.
+| Provider | Cost | Privacy | Setup |
+|----------|------|---------|-------|
+| **Ollama** | Free | 100% Local | `brew install ollama && ollama pull llama3.2` |
+| **OpenAI** | ~$0.001/note | Cloud | API key required |
+| **Anthropic** | ~$0.002/note | Cloud | API key required |
+| **None** | Free | N/A | Raw transcription only |
 
-### Hotkey
-
-Change the recording hotkey:
-
-```yaml
-hotkey:
-  modifiers:
-    - cmd
-    - shift
-  key: n  # Change this to any letter/number
-```
-
-### Whisper Model
+## 🎤 Whisper Models
 
 Choose based on your hardware:
 
 | Model | RAM | Quality | Speed | Best For |
 |-------|-----|---------|-------|----------|
-| `large-v3` | 16GB+ | ★★★★★ | ★★☆☆☆ | M1 Pro/Max or better |
-| `medium` | 8GB+ | ★★★★☆ | ★★★☆☆ | M1/M2 base models |
-| `small` | 4GB+ | ★★★☆☆ | ★★★★☆ | Older Macs |
-| `base` | 2GB+ | ★★☆☆☆ | ★★★★★ | Speed over accuracy |
+| `large-v3` | 16GB+ | ⭐⭐⭐⭐⭐ | ⭐⭐ | M1 Pro/Max or better |
+| `medium` | 8GB+ | ⭐⭐⭐⭐ | ⭐⭐⭐ | M1/M2/M3/M4 base |
+| `small` | 4GB+ | ⭐⭐⭐ | ⭐⭐⭐⭐ | Older Macs |
+| `base` | 2GB+ | ⭐⭐ | ⭐⭐⭐⭐⭐ | Speed over accuracy |
+
+## 📖 CLI Commands
+
+```bash
+navi setup      # Interactive configuration wizard
+navi start      # Start the background daemon
+navi stop       # Stop the daemon
+navi status     # Check if Navi is running
+navi config     # Show current configuration
+navi test       # Test microphone, LLM, and Whisper
+navi install    # Enable auto-start on login
+navi uninstall  # Disable auto-start
+```
+
+## 🧚 Menubar
+
+When running, Navi shows an icon in your menubar:
+
+| Icon | Status |
+|------|--------|
+| 🧚 | Idle — ready to record |
+| 🔴 | Recording in progress |
+| ⏳ | Processing your recording |
+
+Click the icon for quick access to recent notes, settings, and more.
+
+## 📝 Output Format
+
+Notes are saved as Markdown with YAML frontmatter:
+
+```markdown
+---
+title: "Meeting with Design Team"
+created: 2026-04-02T10:30:00
+source: navi
+type: voice-note
+duration: 45.2s
+language: en
+whisper_model: large-v3
+---
+
+# Meeting with Design Team
+
+We discussed the new dashboard layout and agreed on...
+```
+
+## ⚙️ Configuration
+
+Configuration is stored at `~/.config/navi/config.yaml`:
 
 ```yaml
+hotkey:
+  modifiers: [cmd, shift]
+  key: n
+
 whisper:
-  model: large-v3  # or medium, small, base
-  language: en     # or null for auto-detect
-```
+  model: large-v3
+  language: en
 
-### Output
+llm:
+  provider: ollama  # or: openai, anthropic, none
+  ollama:
+    model: llama3.2
+    host: http://localhost:11434
 
-Configure where notes are saved:
-
-```yaml
 output:
-  destination: obsidian
-  vault_path: /path/to/your/vault
-  subfolder: Voice Notes  # Optional
+  vault_path: /path/to/your/obsidian/vault
+  subfolder: Voice Notes
   filename_template: "{title} - {timestamp}"
-```
 
-### Feedback
-
-Toggle notifications and sounds:
-
-```yaml
 feedback:
   sounds: true
   notifications: true
@@ -159,37 +174,57 @@ feedback:
 
 ## 🔧 Troubleshooting
 
-### "Ollama is not running"
+### Hotkey not working
 
-Start Ollama:
+Grant Accessibility permissions:
+1. **System Settings** → **Privacy & Security** → **Accessibility**
+2. Add Terminal.app or the Python executable
+
+### "Cannot access microphone"
+
+Grant Microphone permissions:
+1. **System Settings** → **Privacy & Security** → **Microphone**
+2. Enable access for Terminal.app
+
+### "ffmpeg not found"
+
+```bash
+brew install ffmpeg
+```
+
+### "Ollama not running"
+
 ```bash
 ollama serve
 ```
 
-Or if using Homebrew:
+### Python 3.14 errors
+
+Navi requires Python 3.11-3.13. Create a venv with the correct version:
+
 ```bash
-brew services start ollama
+python3.12 -m venv .venv
+source .venv/bin/activate
+pip install -e .
 ```
 
-### "Cannot access microphone"
+## 🛠️ Development
 
-Grant microphone permission:
-1. Open **System Preferences** → **Privacy & Security** → **Microphone**
-2. Enable access for your terminal app
-
-### "Model not found"
-
-Download the required Ollama model:
 ```bash
-ollama pull llama3.2
+# Clone and setup
+git clone https://github.com/angad729/navi.git
+cd navi
+python3.12 -m venv .venv
+source .venv/bin/activate
+pip install -e ".[dev]"
+
+# Run tests
+pytest
+
+# Format code
+black src/
+ruff check src/
 ```
-
-### Hotkey not working
-
-1. Check if Navi is running: `navi status`
-2. Grant accessibility permissions:
-   - **System Preferences** → **Privacy & Security** → **Accessibility**
-   - Add your terminal app or Python
 
 ## 🤝 Contributing
 
@@ -207,11 +242,13 @@ MIT License — see [LICENSE](LICENSE) for details.
 
 ## 🙏 Acknowledgments
 
-- [Whisper](https://github.com/openai/whisper) by OpenAI for the transcription model
+- [Whisper](https://github.com/openai/whisper) by OpenAI for the incredible transcription model
 - [mlx-whisper](https://github.com/ml-explore/mlx-examples) for Apple Silicon optimization
-- [Ollama](https://ollama.ai) for local LLM inference
-- [rumps](https://github.com/jaredks/rumps) for the menubar app framework
+- [Ollama](https://ollama.ai) for making local LLMs accessible
+- [rumps](https://github.com/jaredks/rumps) for the menubar framework
 
 ---
 
-*"Hey! Listen!" — Navi, probably*
+<p align="center">
+  <i>"Hey! Listen!"</i> — Navi 🧚
+</p>

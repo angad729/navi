@@ -1,7 +1,7 @@
 """
-Ollama processing for Navi.
+LLM processing for Navi.
 
-Uses a local Ollama model to clean up and structure transcripts.
+Supports multiple providers: Ollama (local), OpenAI, Anthropic, or none.
 """
 
 import json
@@ -10,9 +10,11 @@ from typing import Any, Optional
 
 import requests
 
+from navi.keychain import get_api_key
 
-class OllamaError(Exception):
-    """Raised when Ollama processing fails."""
+
+class LLMError(Exception):
+    """Raised when LLM processing fails."""
     pass
 
 
@@ -64,7 +66,7 @@ def process_transcript(
     config: dict[str, Any],
 ) -> dict[str, str]:
     """
-    Process a raw transcript through Ollama to clean it up.
+    Process a raw transcript through the configured LLM provider.
     
     Args:
         transcript: Raw transcript text
@@ -76,14 +78,33 @@ def process_transcript(
         - content: Cleaned transcript
         
     Raises:
-        OllamaError: If processing fails
+        LLMError: If processing fails
     """
-    ollama_config = config.get("ollama", {})
+    llm_config = config.get("llm", {})
+    provider = llm_config.get("provider", "ollama")
+    
+    if provider == "none":
+        return process_transcript_simple(transcript)
+    elif provider == "ollama":
+        return _process_with_ollama(transcript, llm_config)
+    elif provider == "openai":
+        return _process_with_openai(transcript, llm_config)
+    elif provider == "anthropic":
+        return _process_with_anthropic(transcript, llm_config)
+    else:
+        raise LLMError(f"Unknown LLM provider: {provider}")
+
+
+def _process_with_ollama(
+    transcript: str,
+    llm_config: dict[str, Any],
+) -> dict[str, str]:
+    """Process transcript using Ollama."""
+    ollama_config = llm_config.get("ollama", {})
     host = ollama_config.get("host", "http://localhost:11434")
     model = ollama_config.get("model", "llama3.2")
-    prompt_template = ollama_config.get("cleanup_prompt", "")
+    prompt_template = llm_config.get("cleanup_prompt", "")
     
-    # Build the prompt
     prompt = f"{prompt_template}\n\nTranscript:\n{transcript}"
     
     try:
@@ -94,38 +115,137 @@ def process_transcript(
                 "prompt": prompt,
                 "stream": False,
                 "options": {
-                    "temperature": 0.3,  # Lower temperature for more consistent output
+                    "temperature": 0.3,
                     "num_predict": 2048,
                 },
             },
-            timeout=60,  # Allow up to 60 seconds for processing
+            timeout=60,
         )
         
         if response.status_code != 200:
-            raise OllamaError(f"Ollama returned status {response.status_code}")
+            raise LLMError(f"Ollama returned status {response.status_code}")
         
         data = response.json()
         result_text = data.get("response", "").strip()
         
-        # Parse the response
-        return _parse_ollama_response(result_text, transcript)
+        return _parse_llm_response(result_text, transcript)
     
     except requests.exceptions.Timeout:
-        raise OllamaError("Ollama request timed out")
+        raise LLMError("Ollama request timed out")
     except requests.exceptions.ConnectionError:
-        raise OllamaError(
+        raise LLMError(
             "Cannot connect to Ollama. Is it running? Start with: ollama serve"
         )
     except json.JSONDecodeError:
-        raise OllamaError("Invalid response from Ollama")
+        raise LLMError("Invalid response from Ollama")
 
 
-def _parse_ollama_response(response: str, original: str) -> dict[str, str]:
+def _process_with_openai(
+    transcript: str,
+    llm_config: dict[str, Any],
+) -> dict[str, str]:
+    """Process transcript using OpenAI API."""
+    api_key = get_api_key("openai")
+    if not api_key:
+        raise LLMError("OpenAI API key not found. Run 'navi setup' to configure.")
+    
+    openai_config = llm_config.get("openai", {})
+    model = openai_config.get("model", "gpt-4o-mini")
+    prompt_template = llm_config.get("cleanup_prompt", "")
+    
+    try:
+        response = requests.post(
+            "https://api.openai.com/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": model,
+                "messages": [
+                    {"role": "system", "content": prompt_template},
+                    {"role": "user", "content": f"Transcript:\n{transcript}"},
+                ],
+                "temperature": 0.3,
+                "max_tokens": 2048,
+            },
+            timeout=60,
+        )
+        
+        if response.status_code == 401:
+            raise LLMError("Invalid OpenAI API key")
+        elif response.status_code != 200:
+            raise LLMError(f"OpenAI API error: {response.status_code}")
+        
+        data = response.json()
+        result_text = data["choices"][0]["message"]["content"].strip()
+        
+        return _parse_llm_response(result_text, transcript)
+    
+    except requests.exceptions.Timeout:
+        raise LLMError("OpenAI request timed out")
+    except requests.exceptions.ConnectionError:
+        raise LLMError("Cannot connect to OpenAI API")
+    except (KeyError, IndexError) as e:
+        raise LLMError(f"Invalid response from OpenAI: {e}")
+
+
+def _process_with_anthropic(
+    transcript: str,
+    llm_config: dict[str, Any],
+) -> dict[str, str]:
+    """Process transcript using Anthropic API."""
+    api_key = get_api_key("anthropic")
+    if not api_key:
+        raise LLMError("Anthropic API key not found. Run 'navi setup' to configure.")
+    
+    anthropic_config = llm_config.get("anthropic", {})
+    model = anthropic_config.get("model", "claude-3-haiku-20240307")
+    prompt_template = llm_config.get("cleanup_prompt", "")
+    
+    try:
+        response = requests.post(
+            "https://api.anthropic.com/v1/messages",
+            headers={
+                "x-api-key": api_key,
+                "anthropic-version": "2023-06-01",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": model,
+                "max_tokens": 2048,
+                "system": prompt_template,
+                "messages": [
+                    {"role": "user", "content": f"Transcript:\n{transcript}"},
+                ],
+            },
+            timeout=60,
+        )
+        
+        if response.status_code == 401:
+            raise LLMError("Invalid Anthropic API key")
+        elif response.status_code != 200:
+            raise LLMError(f"Anthropic API error: {response.status_code}")
+        
+        data = response.json()
+        result_text = data["content"][0]["text"].strip()
+        
+        return _parse_llm_response(result_text, transcript)
+    
+    except requests.exceptions.Timeout:
+        raise LLMError("Anthropic request timed out")
+    except requests.exceptions.ConnectionError:
+        raise LLMError("Cannot connect to Anthropic API")
+    except (KeyError, IndexError) as e:
+        raise LLMError(f"Invalid response from Anthropic: {e}")
+
+
+def _parse_llm_response(response: str, original: str) -> dict[str, str]:
     """
-    Parse the Ollama response to extract title and content.
+    Parse the LLM response to extract title and content.
     
     Args:
-        response: Raw response from Ollama
+        response: Raw response from LLM
         original: Original transcript (fallback)
         
     Returns:
@@ -205,7 +325,7 @@ def process_transcript_simple(transcript: str) -> dict[str, str]:
     Simple transcript processing without LLM.
     
     Just extracts a title from the first sentence and returns
-    the transcript as-is. Use as fallback when Ollama is unavailable.
+    the transcript as-is. Use as fallback when no LLM is configured.
     
     Args:
         transcript: Raw transcript text
@@ -225,3 +345,7 @@ def process_transcript_simple(transcript: str) -> dict[str, str]:
         "title": title,
         "content": transcript,
     }
+
+
+# Keep old name for backward compatibility
+OllamaError = LLMError

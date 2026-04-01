@@ -13,7 +13,7 @@ import rumps
 from navi.config import load_config, save_config
 from navi.notify import FeedbackManager
 from navi.output import save_note
-from navi.process import process_transcript, OllamaError, process_transcript_simple
+from navi.process import process_transcript, LLMError, process_transcript_simple
 from navi.transcribe import transcribe_audio
 
 
@@ -79,9 +79,8 @@ class MenubarApp(rumps.App):
             callback=None,
         )
         
-        # Recent notes submenu
+        # Recent notes submenu - build with initial items
         self.recent_menu = rumps.MenuItem(title="Recent Notes")
-        self._update_recent_notes()
         
         # Settings
         self.settings_item = rumps.MenuItem(
@@ -113,11 +112,12 @@ class MenubarApp(rumps.App):
             None,  # Separator
             self.quit_item,
         ]
-    
-    def _update_recent_notes(self) -> None:
-        """Update the recent notes submenu."""
-        self.recent_menu.clear()
         
+        # Now populate recent notes after menu is built
+        self._populate_recent_notes()
+    
+    def _populate_recent_notes(self) -> None:
+        """Populate the recent notes submenu."""
         try:
             from navi.output import get_recent_notes
             notes = get_recent_notes(self.config, limit=5)
@@ -140,6 +140,19 @@ class MenubarApp(rumps.App):
                 title=f"Error: {e}",
                 callback=None,
             ))
+    
+    def _update_recent_notes(self) -> None:
+        """Update the recent notes submenu."""
+        # Clear existing items safely
+        try:
+            keys_to_remove = list(self.recent_menu.keys())
+            for key in keys_to_remove:
+                del self.recent_menu[key]
+        except Exception:
+            pass
+        
+        # Repopulate
+        self._populate_recent_notes()
     
     def _on_recording_start(self) -> None:
         """Called when recording starts."""
@@ -176,7 +189,7 @@ class MenubarApp(rumps.App):
         """
         try:
             # Step 1: Transcribe with Whisper
-            self._update_status("Transcribing...")
+            self._safe_update_status("Transcribing...")
             
             whisper_model = self.config["whisper"]["model"]
             language = self.config["whisper"].get("language", "en")
@@ -191,21 +204,21 @@ class MenubarApp(rumps.App):
             
             if not transcript.strip():
                 self.feedback.error("No speech detected")
-                self._reset_status()
+                self._safe_reset_status()
                 return
             
-            # Step 2: Process with Ollama
-            self._update_status("Cleaning up...")
+            # Step 2: Process with LLM
+            self._safe_update_status("Cleaning up...")
             
             try:
                 processed = process_transcript(transcript, self.config)
-            except OllamaError as e:
+            except LLMError as e:
                 # Fall back to simple processing
-                print(f"Ollama error: {e}, using simple processing")
+                print(f"LLM error: {e}, using simple processing")
                 processed = process_transcript_simple(transcript)
             
             # Step 3: Save to vault
-            self._update_status("Saving...")
+            self._safe_update_status("Saving...")
             
             metadata = {
                 "duration": duration,
@@ -222,13 +235,18 @@ class MenubarApp(rumps.App):
             
             # Success!
             self.feedback.note_saved(filepath, processed["title"])
-            self._update_recent_notes()
-            self._reset_status()
+            self._safe_reset_status()
+            
+            # Update recent notes on main thread
+            try:
+                self._update_recent_notes()
+            except Exception:
+                pass
             
         except Exception as e:
             print(f"Processing error: {e}")
             self.feedback.error(str(e))
-            self._reset_status()
+            self._safe_reset_status()
         finally:
             # Clean up temp audio file
             try:
@@ -239,18 +257,22 @@ class MenubarApp(rumps.App):
     def _on_error(self, error: Exception) -> None:
         """Called when a recording error occurs."""
         self.feedback.error(str(error))
-        self._reset_status()
+        self._safe_reset_status()
     
-    def _update_status(self, status: str) -> None:
-        """Update the status display (thread-safe)."""
-        rumps.Timer(0, lambda _: setattr(self.status_item, "title", status)).start()
+    def _safe_update_status(self, status: str) -> None:
+        """Update the status display (thread-safe, no Timer)."""
+        try:
+            self.status_item.title = status
+        except Exception:
+            pass
     
-    def _reset_status(self) -> None:
-        """Reset to idle state (thread-safe)."""
-        def reset(_):
+    def _safe_reset_status(self) -> None:
+        """Reset to idle state (thread-safe, no Timer)."""
+        try:
             self.title = self.ICON_IDLE
             self.status_item.title = "Ready"
-        rumps.Timer(0, reset).start()
+        except Exception:
+            pass
     
     def _open_note(self, filepath: Path) -> None:
         """Open a note in the default editor."""

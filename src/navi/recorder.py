@@ -28,7 +28,7 @@ class AudioRecorder:
     # Audio settings
     SAMPLE_RATE = 16000  # Whisper expects 16kHz
     CHANNELS = 1  # Mono
-    DTYPE = np.float32
+    DTYPE = 'float32'  # Use string instead of numpy dtype for compatibility
     BLOCKSIZE = 1024
     
     def __init__(self, config: dict[str, Any]):
@@ -45,6 +45,7 @@ class AudioRecorder:
         self._stream: Optional[sd.InputStream] = None
         self._recording_thread: Optional[threading.Thread] = None
         self._start_time: Optional[datetime] = None
+        self._last_duration: float = 0.0  # Store duration when recording stops
         
         # Callbacks
         self._on_recording_start: list[Callable] = []
@@ -58,10 +59,10 @@ class AudioRecorder:
     
     @property
     def recording_duration(self) -> float:
-        """Get current recording duration in seconds."""
-        if not self._is_recording or not self._start_time:
-            return 0.0
-        return (datetime.now() - self._start_time).total_seconds()
+        """Get current or last recording duration in seconds."""
+        if self._is_recording and self._start_time:
+            return (datetime.now() - self._start_time).total_seconds()
+        return self._last_duration
     
     def on_recording_start(self, callback: Callable) -> None:
         """Register callback for when recording starts."""
@@ -106,6 +107,7 @@ class AudioRecorder:
         try:
             # Clear previous data
             self._audio_data = []
+            self._last_duration = 0.0
             while not self._audio_queue.empty():
                 self._audio_queue.get_nowait()
             
@@ -153,6 +155,10 @@ class AudioRecorder:
         """
         if not self._is_recording:
             return None
+        
+        # Capture duration before stopping
+        if self._start_time:
+            self._last_duration = (datetime.now() - self._start_time).total_seconds()
         
         try:
             # Stop stream

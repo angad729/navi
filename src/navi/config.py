@@ -44,20 +44,37 @@ WHISPER_MODELS = {
     },
 }
 
-DEFAULT_CONFIG = {
-    "version": 1,
-    "hotkey": {
-        "modifiers": ["cmd", "shift"],
-        "key": "n",
-    },
-    "whisper": {
-        "model": "large-v3",
-        "language": "en",  # None for auto-detect
-    },
+# LLM provider options
+LLM_PROVIDERS = {
     "ollama": {
-        "model": "llama3.2",
-        "host": "http://localhost:11434",
-        "cleanup_prompt": """Clean up this voice transcription. Fix:
+        "name": "Ollama",
+        "description": "Local, free, private - runs entirely on your Mac",
+        "requires_api_key": False,
+        "cost": "Free",
+    },
+    "openai": {
+        "name": "OpenAI",
+        "description": "Cloud-based, uses GPT-4o-mini",
+        "requires_api_key": True,
+        "cost": "~$0.001/note",
+        "default_model": "gpt-4o-mini",
+    },
+    "anthropic": {
+        "name": "Anthropic",
+        "description": "Cloud-based, uses Claude",
+        "requires_api_key": True,
+        "cost": "~$0.002/note",
+        "default_model": "claude-3-haiku-20240307",
+    },
+    "none": {
+        "name": "None",
+        "description": "Skip cleanup - save raw transcription only",
+        "requires_api_key": False,
+        "cost": "Free",
+    },
+}
+
+CLEANUP_PROMPT = """Clean up this voice transcription. Fix:
 - Remove filler words (um, uh, like, you know)
 - Fix false starts and incomplete sentences
 - Add proper punctuation and paragraphs
@@ -67,7 +84,33 @@ DEFAULT_CONFIG = {
 Respond in this exact format:
 TITLE: <extracted title>
 ---
-<cleaned transcript>""",
+<cleaned transcript>"""
+
+DEFAULT_CONFIG = {
+    "version": 2,
+    "hotkey": {
+        "modifiers": ["cmd", "shift"],
+        "key": "n",
+    },
+    "whisper": {
+        "model": "large-v3",
+        "language": "en",  # None for auto-detect
+    },
+    "llm": {
+        "provider": "ollama",  # ollama, openai, anthropic, none
+        "cleanup_prompt": CLEANUP_PROMPT,
+        "ollama": {
+            "model": "llama3.2",
+            "host": "http://localhost:11434",
+        },
+        "openai": {
+            "model": "gpt-4o-mini",
+            # API key stored in macOS Keychain
+        },
+        "anthropic": {
+            "model": "claude-3-haiku-20240307",
+            # API key stored in macOS Keychain
+        },
     },
     "output": {
         "destination": "obsidian",
@@ -124,8 +167,28 @@ def load_config(config_path: Optional[Path] = None) -> dict[str, Any]:
     except yaml.YAMLError as e:
         raise ConfigError(f"Invalid config file: {e}")
     
+    # Migrate old config format if needed
+    user_config = _migrate_config(user_config)
+    
     # Merge with defaults (user config takes precedence)
     config = _deep_merge(DEFAULT_CONFIG.copy(), user_config)
+    return config
+
+
+def _migrate_config(config: dict[str, Any]) -> dict[str, Any]:
+    """Migrate old config format to new format."""
+    version = config.get("version", 1)
+    
+    # Migrate from v1 (ollama at top level) to v2 (llm.provider structure)
+    if version < 2 and "ollama" in config:
+        old_ollama = config.pop("ollama", {})
+        config["llm"] = {
+            "provider": "ollama",
+            "ollama": old_ollama,
+            "cleanup_prompt": old_ollama.get("cleanup_prompt", CLEANUP_PROMPT),
+        }
+        config["version"] = 2
+    
     return config
 
 
@@ -172,6 +235,12 @@ def validate_config(config: dict[str, Any]) -> list[str]:
     hotkey = config.get("hotkey", {})
     if not hotkey.get("key"):
         errors.append("Hotkey key is not set")
+    
+    # Check LLM provider
+    llm_config = config.get("llm", {})
+    provider = llm_config.get("provider", "")
+    if provider and provider not in LLM_PROVIDERS:
+        errors.append(f"Invalid LLM provider: {provider}. Valid options: {list(LLM_PROVIDERS.keys())}")
     
     return errors
 
