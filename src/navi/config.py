@@ -74,17 +74,42 @@ LLM_PROVIDERS = {
     },
 }
 
-CLEANUP_PROMPT = """Clean up this voice transcription. Fix:
-- Remove filler words (um, uh, like, you know)
-- Fix false starts and incomplete sentences
-- Add proper punctuation and paragraphs
-- Keep the meaning and tone intact
-- Extract a concise title (max 6 words)
+CLEANUP_PROMPT = """You are a smart note-taking assistant. Process this voice transcription and output a well-structured note.
 
-Respond in this exact format:
-TITLE: <extracted title>
----
-<cleaned transcript>"""
+Your tasks:
+1. Extract a concise title (max 6 words)
+2. Extract entities: people names, project names, companies, topics, concepts
+3. Generate relevant tags for categorization
+4. Create a structured Summary with bullet points including:
+   - Key decisions
+   - Action items (with owners if mentioned)
+   - Blockers or concerns
+   - Important facts or dates
+5. Create a cleaned Transcript that:
+   - Removes filler words (um, uh, like, you know)
+   - Fixes false starts and incomplete sentences
+   - Preserves the conversational tone
+   - Keeps ALL important context and sentences
+
+Respond in this EXACT JSON format:
+{
+  "title": "Meeting About Q3 Launch",
+  "tags": ["product", "Q3", "planning"],
+  "entities": [
+    {"name": "John Smith", "type": "person"},
+    {"name": "Project Atlas", "type": "project"},
+    {"name": "Acme Corp", "type": "company"}
+  ],
+  "summary": "- Key decision: Launch date set for June 15\\n- Action: John to finalize pricing by Monday\\n- Action: Review competitor analysis by Friday\\n- Blocker: Waiting on legal sign-off",
+  "transcript": "We talked about the Q3 launch timeline. John thinks June 15 is doable if we lock down pricing this week. I mentioned we still need to look at what competitors are doing before we commit to the final feature set."
+}
+
+IMPORTANT:
+- Only include entities you are HIGHLY confident about
+- Tags should be lowercase, single words or hyphenated
+- Summary should be bullet points starting with "- "
+- Transcript should preserve ALL key information from the original
+- Use \\n for newlines in the JSON strings"""
 
 DEFAULT_CONFIG = {
     "version": 2,

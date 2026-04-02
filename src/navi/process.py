@@ -2,10 +2,12 @@
 LLM processing for Navi.
 
 Supports multiple providers: Ollama (local), OpenAI, Anthropic, or none.
+Includes smart entity extraction and vault linking.
 """
 
 import json
 import re
+from pathlib import Path
 from typing import Any, Optional
 
 import requests
@@ -61,10 +63,80 @@ def check_model_available(
         return False
 
 
+def get_existing_notes(vault_path: str, subfolder: str = "") -> set[str]:
+    """
+    Scan vault for existing note titles to enable smart linking.
+    
+    Args:
+        vault_path: Path to Obsidian vault
+        subfolder: Optional subfolder to limit scan
+        
+    Returns:
+        Set of note names (without .md extension)
+    """
+    vault = Path(vault_path)
+    if not vault.exists():
+        return set()
+    
+    notes = set()
+    
+    # Scan the vault (or subfolder)
+    scan_path = vault / subfolder if subfolder else vault
+    
+    if scan_path.exists():
+        for md_file in scan_path.rglob("*.md"):
+            # Get the note name without extension
+            note_name = md_file.stem
+            notes.add(note_name.lower())
+    
+    return notes
+
+
+def resolve_entity_links(
+    entities: list[dict[str, str]],
+    existing_notes: set[str],
+) -> list[dict[str, Any]]:
+    """
+    Resolve entities to wikilinks, checking if notes exist.
+    
+    Args:
+        entities: List of entity dicts with 'name' and 'type'
+        existing_notes: Set of existing note names (lowercase)
+        
+    Returns:
+        List of entities with 'link' field added (None if no match)
+    """
+    resolved = []
+    
+    for entity in entities:
+        name = entity.get("name", "")
+        entity_type = entity.get("type", "unknown")
+        
+        # Check if a note with this name exists
+        name_lower = name.lower()
+        
+        # Try exact match first
+        if name_lower in existing_notes:
+            entity["link"] = f"[[{name}]]"
+        else:
+            # Try partial matches (e.g., "John" matches "John Smith")
+            matches = [n for n in existing_notes if name_lower in n or n in name_lower]
+            if len(matches) == 1:
+                # Only link if there's exactly one match (high confidence)
+                # Reconstruct the original case from the filename
+                entity["link"] = f"[[{name}]]"
+            else:
+                entity["link"] = None
+        
+        resolved.append(entity)
+    
+    return resolved
+
+
 def process_transcript(
     transcript: str,
     config: dict[str, Any],
-) -> dict[str, str]:
+) -> dict[str, Any]:
     """
     Process a raw transcript through the configured LLM provider.
     
@@ -75,7 +147,10 @@ def process_transcript(
     Returns:
         Dictionary with:
         - title: Extracted title
-        - content: Cleaned transcript
+        - content: Full formatted note content
+        - tags: List of tags
+        - entities: List of extracted entities
+        - related: List of wikilinks to related notes
         
     Raises:
         LLMError: If processing fails
@@ -86,19 +161,39 @@ def process_transcript(
     if provider == "none":
         return process_transcript_simple(transcript)
     elif provider == "ollama":
-        return _process_with_ollama(transcript, llm_config)
+        result = _process_with_ollama(transcript, llm_config)
     elif provider == "openai":
-        return _process_with_openai(transcript, llm_config)
+        result = _process_with_openai(transcript, llm_config)
     elif provider == "anthropic":
-        return _process_with_anthropic(transcript, llm_config)
+        result = _process_with_anthropic(transcript, llm_config)
     else:
         raise LLMError(f"Unknown LLM provider: {provider}")
+    
+    # Resolve entity links against existing vault notes
+    output_config = config.get("output", {})
+    vault_path = output_config.get("vault_path", "")
+    subfolder = output_config.get("subfolder", "")
+    
+    if vault_path:
+        existing_notes = get_existing_notes(vault_path, subfolder)
+        result["entities"] = resolve_entity_links(
+            result.get("entities", []),
+            existing_notes,
+        )
+    
+    # Build the related links list (only entities with confirmed links)
+    result["related"] = [
+        e["link"] for e in result.get("entities", [])
+        if e.get("link")
+    ]
+    
+    return result
 
 
 def _process_with_ollama(
     transcript: str,
     llm_config: dict[str, Any],
-) -> dict[str, str]:
+) -> dict[str, Any]:
     """Process transcript using Ollama."""
     ollama_config = llm_config.get("ollama", {})
     host = ollama_config.get("host", "http://localhost:11434")
@@ -114,12 +209,13 @@ def _process_with_ollama(
                 "model": model,
                 "prompt": prompt,
                 "stream": False,
+                "format": "json",
                 "options": {
                     "temperature": 0.3,
-                    "num_predict": 2048,
+                    "num_predict": 4096,
                 },
             },
-            timeout=60,
+            timeout=120,
         )
         
         if response.status_code != 200:
@@ -128,7 +224,7 @@ def _process_with_ollama(
         data = response.json()
         result_text = data.get("response", "").strip()
         
-        return _parse_llm_response(result_text, transcript)
+        return _parse_json_response(result_text, transcript)
     
     except requests.exceptions.Timeout:
         raise LLMError("Ollama request timed out")
@@ -143,7 +239,7 @@ def _process_with_ollama(
 def _process_with_openai(
     transcript: str,
     llm_config: dict[str, Any],
-) -> dict[str, str]:
+) -> dict[str, Any]:
     """Process transcript using OpenAI API."""
     api_key = get_api_key("openai")
     if not api_key:
@@ -167,7 +263,8 @@ def _process_with_openai(
                     {"role": "user", "content": f"Transcript:\n{transcript}"},
                 ],
                 "temperature": 0.3,
-                "max_tokens": 2048,
+                "max_tokens": 4096,
+                "response_format": {"type": "json_object"},
             },
             timeout=60,
         )
@@ -180,7 +277,7 @@ def _process_with_openai(
         data = response.json()
         result_text = data["choices"][0]["message"]["content"].strip()
         
-        return _parse_llm_response(result_text, transcript)
+        return _parse_json_response(result_text, transcript)
     
     except requests.exceptions.Timeout:
         raise LLMError("OpenAI request timed out")
@@ -193,7 +290,7 @@ def _process_with_openai(
 def _process_with_anthropic(
     transcript: str,
     llm_config: dict[str, Any],
-) -> dict[str, str]:
+) -> dict[str, Any]:
     """Process transcript using Anthropic API."""
     api_key = get_api_key("anthropic")
     if not api_key:
@@ -213,7 +310,7 @@ def _process_with_anthropic(
             },
             json={
                 "model": model,
-                "max_tokens": 2048,
+                "max_tokens": 4096,
                 "system": prompt_template,
                 "messages": [
                     {"role": "user", "content": f"Transcript:\n{transcript}"},
@@ -230,7 +327,7 @@ def _process_with_anthropic(
         data = response.json()
         result_text = data["content"][0]["text"].strip()
         
-        return _parse_llm_response(result_text, transcript)
+        return _parse_json_response(result_text, transcript)
     
     except requests.exceptions.Timeout:
         raise LLMError("Anthropic request timed out")
@@ -240,9 +337,47 @@ def _process_with_anthropic(
         raise LLMError(f"Invalid response from Anthropic: {e}")
 
 
-def _parse_llm_response(response: str, original: str) -> dict[str, str]:
+def _parse_json_response(response: str, original: str) -> dict[str, Any]:
     """
-    Parse the LLM response to extract title and content.
+    Parse the JSON response from LLM.
+    
+    Args:
+        response: Raw response from LLM (should be JSON)
+        original: Original transcript (fallback)
+        
+    Returns:
+        Dictionary with title, tags, entities, summary, transcript
+    """
+    # Try to extract JSON from the response
+    try:
+        # Clean up response - remove markdown code blocks if present
+        cleaned = response.strip()
+        if cleaned.startswith("```json"):
+            cleaned = cleaned[7:]
+        if cleaned.startswith("```"):
+            cleaned = cleaned[3:]
+        if cleaned.endswith("```"):
+            cleaned = cleaned[:-3]
+        cleaned = cleaned.strip()
+        
+        data = json.loads(cleaned)
+        
+        return {
+            "title": _clean_title(data.get("title", "Untitled Note")),
+            "tags": data.get("tags", []),
+            "entities": data.get("entities", []),
+            "summary": data.get("summary", ""),
+            "transcript": data.get("transcript", original),
+        }
+    
+    except json.JSONDecodeError:
+        # Fallback to simple parsing if JSON fails
+        return _parse_legacy_response(response, original)
+
+
+def _parse_legacy_response(response: str, original: str) -> dict[str, Any]:
+    """
+    Fallback parser for non-JSON responses.
     
     Args:
         response: Raw response from LLM
@@ -262,7 +397,6 @@ def _parse_llm_response(response: str, original: str) -> dict[str, str]:
         if content_match:
             content = content_match.group(1).strip()
         else:
-            # Try to get everything after the title line
             content = re.sub(r"^TITLE:\s*.+?\n", "", response, flags=re.IGNORECASE).strip()
             content = re.sub(r"^---\s*", "", content).strip()
     else:
@@ -275,12 +409,12 @@ def _parse_llm_response(response: str, original: str) -> dict[str, str]:
             title = _generate_fallback_title(original)
             content = original
     
-    # Clean up title
-    title = _clean_title(title)
-    
     return {
-        "title": title,
-        "content": content,
+        "title": _clean_title(title),
+        "tags": [],
+        "entities": [],
+        "summary": "",
+        "transcript": content,
     }
 
 
@@ -320,7 +454,7 @@ def _clean_title(title: str) -> str:
     return title.strip()
 
 
-def process_transcript_simple(transcript: str) -> dict[str, str]:
+def process_transcript_simple(transcript: str) -> dict[str, Any]:
     """
     Simple transcript processing without LLM.
     
@@ -331,7 +465,7 @@ def process_transcript_simple(transcript: str) -> dict[str, str]:
         transcript: Raw transcript text
         
     Returns:
-        Dictionary with title and content
+        Dictionary with title, tags, entities, summary, transcript
     """
     # Split into sentences
     sentences = re.split(r"[.!?]+", transcript)
@@ -339,11 +473,14 @@ def process_transcript_simple(transcript: str) -> dict[str, str]:
     if sentences:
         title = _clean_title(sentences[0].strip())
     else:
-        title = "Voice Note"
+        title = "Note"
     
     return {
         "title": title,
-        "content": transcript,
+        "tags": [],
+        "entities": [],
+        "summary": "",
+        "transcript": transcript,
     }
 
 

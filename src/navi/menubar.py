@@ -207,8 +207,8 @@ class MenubarApp(rumps.App):
                 self._safe_reset_status()
                 return
             
-            # Step 2: Process with LLM
-            self._safe_update_status("Cleaning up...")
+            # Step 2: Process with LLM (extracts entities, tags, summary, etc.)
+            self._safe_update_status("Processing...")
             
             try:
                 processed = process_transcript(transcript, self.config)
@@ -217,7 +217,7 @@ class MenubarApp(rumps.App):
                 print(f"LLM error: {e}, using simple processing")
                 processed = process_transcript_simple(transcript)
             
-            # Step 3: Save to vault
+            # Step 3: Save to vault with structured format
             self._safe_update_status("Saving...")
             
             metadata = {
@@ -226,9 +226,9 @@ class MenubarApp(rumps.App):
                 "model": whisper_model,
             }
             
+            # save_note now takes the full processed dict
             filepath = save_note(
-                title=processed["title"],
-                content=processed["content"],
+                processed=processed,
                 config=self.config,
                 metadata=metadata,
             )
@@ -245,6 +245,8 @@ class MenubarApp(rumps.App):
             
         except Exception as e:
             print(f"Processing error: {e}")
+            import traceback
+            traceback.print_exc()
             self.feedback.error(str(e))
             self._safe_reset_status()
         finally:

@@ -11,17 +11,15 @@ from typing import Any
 
 
 def save_note(
-    title: str,
-    content: str,
+    processed: dict[str, Any],
     config: dict[str, Any],
     metadata: dict[str, Any] | None = None,
 ) -> Path:
     """
-    Save a note to the configured destination.
+    Save a processed note to the configured destination.
     
     Args:
-        title: Note title (used in filename)
-        content: Note content (markdown)
+        processed: Processed transcript dict with title, tags, entities, summary, transcript
         config: Navi configuration dictionary
         metadata: Optional metadata to include in frontmatter
         
@@ -32,15 +30,14 @@ def save_note(
     destination = output_config.get("destination", "obsidian")
     
     if destination == "obsidian":
-        return _save_to_obsidian(title, content, output_config, metadata)
+        return _save_to_obsidian(processed, output_config, metadata)
     else:
         # Default to generic markdown folder
-        return _save_to_folder(title, content, output_config, metadata)
+        return _save_to_folder(processed, output_config, metadata)
 
 
 def _save_to_obsidian(
-    title: str,
-    content: str,
+    processed: dict[str, Any],
     output_config: dict[str, Any],
     metadata: dict[str, Any] | None = None,
 ) -> Path:
@@ -59,6 +56,7 @@ def _save_to_obsidian(
         target_dir = vault_path
     
     # Generate filename
+    title = processed.get("title", "Untitled Note")
     filename = _generate_filename(title, output_config)
     filepath = target_dir / filename
     
@@ -66,7 +64,7 @@ def _save_to_obsidian(
     filepath = _ensure_unique_path(filepath)
     
     # Build note content with frontmatter
-    note_content = _build_note_content(title, content, metadata)
+    note_content = _build_note_content(processed, metadata)
     
     # Write file
     filepath.write_text(note_content, encoding="utf-8")
@@ -75,8 +73,7 @@ def _save_to_obsidian(
 
 
 def _save_to_folder(
-    title: str,
-    content: str,
+    processed: dict[str, Any],
     output_config: dict[str, Any],
     metadata: dict[str, Any] | None = None,
 ) -> Path:
@@ -87,6 +84,7 @@ def _save_to_folder(
         folder_path.mkdir(parents=True, exist_ok=True)
     
     # Generate filename
+    title = processed.get("title", "Untitled Note")
     filename = _generate_filename(title, output_config)
     filepath = folder_path / filename
     
@@ -94,7 +92,7 @@ def _save_to_folder(
     filepath = _ensure_unique_path(filepath)
     
     # Build note content
-    note_content = _build_note_content(title, content, metadata)
+    note_content = _build_note_content(processed, metadata)
     
     # Write file
     filepath.write_text(note_content, encoding="utf-8")
@@ -192,50 +190,133 @@ def _ensure_unique_path(filepath: Path) -> Path:
 
 
 def _build_note_content(
-    title: str,
-    content: str,
+    processed: dict[str, Any],
     metadata: dict[str, Any] | None = None,
 ) -> str:
     """
     Build complete note content with frontmatter.
     
     Args:
-        title: Note title
-        content: Note content
+        processed: Processed transcript dict
         metadata: Optional metadata for frontmatter
         
     Returns:
         Complete note content with YAML frontmatter
     """
+    title = processed.get("title", "Untitled Note")
+    tags = processed.get("tags", [])
+    entities = processed.get("entities", [])
+    related = processed.get("related", [])
+    summary = processed.get("summary", "")
+    transcript = processed.get("transcript", "")
+    
     # Build frontmatter
-    frontmatter_items = [
-        f"title: \"{title}\"",
+    frontmatter_lines = [
+        f'title: "{title}"',
         f"created: {datetime.now().isoformat()}",
         "source: navi",
         "type: note",
     ]
     
+    # Add tags if present
+    if tags:
+        tags_str = ", ".join(tags)
+        frontmatter_lines.append(f"tags: [{tags_str}]")
+    
+    # Add related links if present
+    if related:
+        related_str = ", ".join(related)
+        frontmatter_lines.append(f"related: [{related_str}]")
+    
+    # Add metadata
     if metadata:
         if "duration" in metadata:
-            frontmatter_items.append(f"duration: {metadata['duration']:.1f}s")
+            frontmatter_lines.append(f"duration: {metadata['duration']:.1f}s")
         if "language" in metadata:
-            frontmatter_items.append(f"language: {metadata['language']}")
+            frontmatter_lines.append(f"language: {metadata['language']}")
         if "model" in metadata:
-            frontmatter_items.append(f"whisper_model: {metadata['model']}")
+            frontmatter_lines.append(f"whisper_model: {metadata['model']}")
     
-    frontmatter = "\n".join(frontmatter_items)
+    frontmatter = "\n".join(frontmatter_lines)
     
-    # Combine frontmatter and content
+    # Build entity mentions for inline linking
+    entity_links = []
+    for entity in entities:
+        if entity.get("link"):
+            entity_links.append(entity["link"])
+    
+    # Insert wikilinks into transcript where entities are mentioned
+    linked_transcript = _insert_entity_links(transcript, entities)
+    linked_summary = _insert_entity_links(summary, entities)
+    
+    # Build the note body
+    body_parts = [f"# {title}"]
+    
+    # Add Summary section if present
+    if summary or linked_summary:
+        body_parts.append("\n## Summary")
+        body_parts.append(linked_summary or summary)
+    
+    # Add Transcript section
+    body_parts.append("\n## Transcript")
+    body_parts.append(linked_transcript or transcript)
+    
+    # Add tags at the bottom for Obsidian tag display
+    if tags:
+        tag_line = " ".join([f"#{tag}" for tag in tags])
+        body_parts.append(f"\n---\n{tag_line}")
+    
+    body = "\n".join(body_parts)
+    
+    # Combine frontmatter and body
     note = f"""---
 {frontmatter}
 ---
 
-# {title}
-
-{content}
+{body}
 """
     
     return note
+
+
+def _insert_entity_links(text: str, entities: list[dict[str, Any]]) -> str:
+    """
+    Insert wikilinks for entities into text.
+    
+    Only inserts links for entities that have confirmed links
+    and only on the first occurrence.
+    
+    Args:
+        text: Original text
+        entities: List of entity dicts with optional 'link' field
+        
+    Returns:
+        Text with wikilinks inserted
+    """
+    if not text or not entities:
+        return text
+    
+    result = text
+    
+    for entity in entities:
+        name = entity.get("name", "")
+        link = entity.get("link")
+        
+        if not name or not link:
+            continue
+        
+        # Only replace the first occurrence
+        # Use word boundaries to avoid partial matches
+        pattern = rf'\b{re.escape(name)}\b'
+        
+        # Check if already linked (inside [[ ]])
+        if f"[[{name}]]" in result:
+            continue
+        
+        # Replace first occurrence only
+        result = re.sub(pattern, link, result, count=1, flags=re.IGNORECASE)
+    
+    return result
 
 
 def get_recent_notes(
