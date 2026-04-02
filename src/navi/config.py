@@ -152,13 +152,6 @@ DEFAULT_CONFIG = {
     "daemon": {
         "auto_start": False,
     },
-    # Wake word configuration (v0.2)
-    "wake_word": {
-        "enabled": False,  # Enable with: navi wake enable
-        "phrases": ["listen navi", "hey navi", "navi"],
-        "sensitivity": 0.5,  # 0.0-1.0, higher = more sensitive
-        "cooldown": 2.0,  # Seconds between detections
-    },
     # Ask Navi configuration (v0.2)
     "ask_navi": {
         "embedding_provider": "auto",  # auto, ollama, sentence-transformers
@@ -228,6 +221,10 @@ def _migrate_config(config: dict[str, Any]) -> dict[str, Any]:
             "cleanup_prompt": old_ollama.get("cleanup_prompt", CLEANUP_PROMPT),
         }
         config["version"] = 2
+    
+    # Remove deprecated wake_word config if present
+    if "wake_word" in config:
+        del config["wake_word"]
     
     return config
 

@@ -2,9 +2,9 @@
 
 **Think out loud. Capture as notes.**
 
-Press a hotkey or say **"Listen Navi"**, speak your thoughts, and Navi transcribes them locally with Whisper, cleans them up with an LLM of your choice, and saves them as Markdown to your Obsidian vault.
+Press a hotkey, speak your thoughts, and Navi transcribes them locally with Whisper, cleans them up with an LLM of your choice, and saves them as Markdown to your Obsidian vault.
 
-**v0.2**: Now with **wake word detection** ("Listen Navi") and **Ask Navi** for querying your voice notes!
+**v0.2**: Now with **Ask Navi** for querying your voice notes with natural language!
 
 ![macOS](https://img.shields.io/badge/macOS-Apple_Silicon-000000?style=flat&logo=apple&logoColor=white)
 ![Python](https://img.shields.io/badge/Python-3.11--3.13-blue?style=flat&logo=python&logoColor=white)
@@ -15,7 +15,6 @@ Press a hotkey or say **"Listen Navi"**, speak your thoughts, and Navi transcrib
 | Feature | Description |
 |---------|-------------|
 | 🎙️ **Hotkey Triggered** | Press `⌘⇧N` to start/stop recording. No UI to navigate. |
-| 🗣️ **Wake Word** | Say "Listen Navi" to start recording hands-free. |
 | 🔍 **Ask Navi** | Query your notes: `navi ask "What did I say about Q3?"` |
 | 🔒 **Privacy First** | Whisper runs 100% locally on your Mac. Your voice never leaves your device. |
 | 🧠 **Flexible LLM** | Choose Ollama (local/free), OpenAI, Anthropic, or skip cleanup entirely. |
@@ -47,9 +46,6 @@ source .venv/bin/activate
 
 # Install Navi
 pip install -e .
-
-# Optional: Install all features (wake word + ask navi)
-pip install -e ".[all]"
 ```
 
 ### 2. Setup
@@ -78,22 +74,6 @@ navi start
 
 Press **⌘⇧N** (or your custom hotkey) to start recording. Press again to stop. Your thoughts are transcribed and saved to Obsidian! ✨
 
-## 🗣️ Wake Word (v0.2)
-
-Enable hands-free recording with wake word detection:
-
-```bash
-# Enable wake word
-navi wake enable
-
-# Restart for changes to take effect
-navi stop && navi start
-```
-
-Now say **"Listen Navi"** (or "Hey Navi") to start recording!
-
-The wake word uses [Vosk](https://alphacephei.com/vosk/) for offline, private speech recognition. The model (~40MB) downloads automatically on first enable.
-
 ## 🔍 Ask Navi (v0.2)
 
 Query your voice notes using natural language:
@@ -119,6 +99,20 @@ navi ask --top-k 10 "recent meetings"
 
 # JSON output for scripting
 navi ask --json "project updates"
+```
+
+### Embedding Setup
+
+Ask Navi needs an embedding model for semantic search:
+
+**Option 1: Ollama (Recommended)**
+```bash
+ollama pull nomic-embed-text
+```
+
+**Option 2: Sentence Transformers**
+```bash
+pip install sentence-transformers
 ```
 
 ## 🧠 LLM Providers
@@ -165,14 +159,6 @@ navi ask --no-synthesis "q"    # Skip LLM, show raw results
 navi ask --json "query"        # JSON output
 navi index                     # Build/rebuild notes index
 navi index --force             # Force re-index all notes
-```
-
-### Wake Word (v0.2)
-```bash
-navi wake enable    # Enable wake word detection
-navi wake disable   # Disable wake word
-navi wake status    # Show wake word status
-navi wake setup     # Download Vosk model manually
 ```
 
 ## 🧚 Menubar
@@ -244,13 +230,7 @@ feedback:
   notifications: true
   menubar_icon: true
 
-# v0.2 features
-wake_word:
-  enabled: false
-  phrases: ["listen navi", "hey navi", "navi"]
-  sensitivity: 0.5
-  cooldown: 2.0
-
+# Ask Navi configuration
 ask_navi:
   embedding_provider: auto  # auto, ollama, sentence-transformers
   ollama_model: nomic-embed-text
@@ -283,13 +263,6 @@ brew install ffmpeg
 ollama serve
 ```
 
-### Wake word not detecting
-
-1. Check status: `navi wake status`
-2. Ensure Vosk is installed: `pip install vosk`
-3. Restart Navi: `navi stop && navi start`
-4. Try speaking more clearly and closer to the mic
-
 ### Ask Navi returns no results
 
 1. Ensure notes are indexed: `navi index`
@@ -314,7 +287,7 @@ git clone https://github.com/angad729/navi.git
 cd navi
 python3.12 -m venv .venv
 source .venv/bin/activate
-pip install -e ".[dev,all]"
+pip install -e ".[dev,ask]"
 
 # Run tests
 pytest
@@ -343,7 +316,6 @@ MIT License — see [LICENSE](LICENSE) for details.
 - [Whisper](https://github.com/openai/whisper) by OpenAI for the incredible transcription model
 - [mlx-whisper](https://github.com/ml-explore/mlx-examples) for Apple Silicon optimization
 - [Ollama](https://ollama.ai) for making local LLMs accessible
-- [Vosk](https://alphacephei.com/vosk/) for offline wake word detection
 - [rumps](https://github.com/jaredks/rumps) for the menubar framework
 
 ---

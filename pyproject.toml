@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "navi-voice"
 version = "0.2.0"
-description = "Think out loud, capture as notes — hotkey-triggered or voice-activated speech-to-text with local Whisper transcription"
+description = "Think out loud, capture as notes — hotkey-triggered speech-to-text with local Whisper transcription"
 readme = "README.md"
 license = {text = "MIT"}
 requires-python = ">=3.11,<3.14"
@@ -40,19 +40,8 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# Wake word detection (say "Listen Navi" to start recording)
-wake = [
-    "vosk>=0.3.42",
-]
-
 # Ask Navi - query your voice notes with natural language
 ask = [
-    "sentence-transformers>=2.2.0",
-]
-
-# All optional features
-all = [
-    "vosk>=0.3.42",
     "sentence-transformers>=2.2.0",
 ]
 
