@@ -10,6 +10,9 @@ Commands:
     navi uninstall  - Disable auto-start
     navi config     - Show current configuration
     navi test       - Test microphone and transcription
+    navi ask        - Query your voice notes
+    navi index      - Build/rebuild the notes index
+    navi wake       - Configure wake word detection
 """
 
 import subprocess
@@ -60,13 +63,16 @@ def _install_ffmpeg() -> bool:
 
 
 @click.group()
-@click.version_option(version="0.1.0", prog_name="navi")
+@click.version_option(version="0.2.0", prog_name="navi")
 def main():
     """
     🧚 Navi - Think out loud. Capture as notes.
     
-    Press ⌘⇧N to start/stop recording. Your speech is transcribed locally
-    with Whisper, cleaned up with your chosen LLM, and saved to your Obsidian vault.
+    Press ⌘⇧N to start/stop recording, or say "Listen Navi" hands-free.
+    Your speech is transcribed locally with Whisper, cleaned up with your
+    chosen LLM, and saved to your Obsidian vault.
+    
+    Query your notes: navi ask "What did I say about Q3?"
     
     Get started with: navi setup
     """
@@ -272,6 +278,10 @@ def setup():
     click.echo(f"  1. Start Navi:  {click.style('navi start', fg='green')}")
     click.echo(f"  2. Press {click.style('⌘⇧N', fg='yellow')} to start recording")
     click.echo(f"  3. Press {click.style('⌘⇧N', fg='yellow')} again to stop and save")
+    click.echo()
+    click.echo("Optional:")
+    click.echo(f"  • Enable wake word: {click.style('navi wake enable', fg='green')}")
+    click.echo(f"  • Index notes for search: {click.style('navi index', fg='green')}")
     click.echo()
 
 
@@ -484,6 +494,11 @@ def start():
     key = config["hotkey"]["key"].upper()
     hotkey_str = "+".join([m.title() for m in mods] + [key])
     click.echo(f"   Press {click.style(hotkey_str, fg='yellow')} to start/stop recording")
+    
+    # Show wake word status if enabled
+    wake_enabled = config.get("wake_word", {}).get("enabled", False)
+    if wake_enabled:
+        click.echo(f"   Or say {click.style('\"Listen Navi\"', fg='yellow')} to start recording")
 
 
 @main.command()
@@ -519,6 +534,10 @@ def status():
         provider = config.get("llm", {}).get("provider", "unknown")
         provider_name = LLM_PROVIDERS.get(provider, {}).get("name", provider)
         click.echo(f"   LLM: {provider_name}")
+        
+        # Show wake word status
+        wake_enabled = config.get("wake_word", {}).get("enabled", False)
+        click.echo(f"   Wake word: {'✓ enabled' if wake_enabled else 'disabled'}")
     else:
         click.echo("Navi is not running")
         click.echo("   Start with: navi start")
@@ -528,6 +547,19 @@ def status():
         click.echo(click.style("✓ Auto-start is enabled", fg="green"))
     else:
         click.echo("   Auto-start is disabled")
+    
+    # Show index status
+    try:
+        from navi.ask import NoteIndex
+        config = load_config()
+        index = NoteIndex(config)
+        stats = index.get_stats()
+        if stats.get("indexed"):
+            click.echo(f"   Notes indexed: {stats['note_count']}")
+        else:
+            click.echo("   Notes not indexed (run: navi index)")
+    except Exception:
+        pass
 
 
 @main.command()
@@ -569,8 +601,8 @@ def uninstall():
     click.echo(click.style("✓ Auto-start disabled", fg="green"))
 
 
-@main.command()
-def config():
+@main.command("config")
+def show_config():
     """Show current configuration."""
     if not config_exists():
         click.echo(click.style("⚠️  Navi is not configured yet.", fg="yellow"))
@@ -586,6 +618,14 @@ def config():
     key = cfg["hotkey"]["key"].upper()
     hotkey_str = "+".join([m.title() for m in mods] + [key])
     click.echo(f"Hotkey:         {click.style(hotkey_str, fg='yellow')}")
+    
+    # Wake word
+    wake_config = cfg.get("wake_word", {})
+    wake_enabled = wake_config.get("enabled", False)
+    click.echo(f"Wake word:      {'✓ enabled' if wake_enabled else 'disabled'}")
+    if wake_enabled:
+        phrases = wake_config.get("phrases", ["listen navi"])
+        click.echo(f"  Phrases:      {', '.join(phrases)}")
     
     # Whisper
     click.echo(f"Whisper model:  {cfg['whisper']['model']}")
@@ -726,6 +766,313 @@ def test():
     click.echo()
     click.echo(click.style("✓ All tests passed!", fg="green", bold=True))
     click.echo()
+
+
+# =============================================================================
+# ASK NAVI - Query your voice notes
+# =============================================================================
+
+@main.command("ask")
+@click.argument("query", nargs=-1, required=True)
+@click.option("--top-k", "-k", default=5, help="Number of notes to retrieve")
+@click.option("--no-synthesis", is_flag=True, help="Skip LLM synthesis, show raw results")
+@click.option("--json", "as_json", is_flag=True, help="Output as JSON")
+def ask_command(query: tuple, top_k: int, no_synthesis: bool, as_json: bool):
+    """
+    Query your voice notes using natural language.
+    
+    Examples:
+    
+        navi ask "What did I say about the Q3 launch?"
+        
+        navi ask "Find all notes mentioning John"
+        
+        navi ask "Summarize my thoughts on Project Atlas"
+    """
+    if not config_exists():
+        click.echo(click.style("⚠️  Navi is not configured yet.", fg="yellow"))
+        click.echo("   Run: navi setup")
+        return
+    
+    from navi.ask import ask_navi, AskNaviError, NoteIndex
+    
+    config = load_config()
+    query_str = " ".join(query)
+    
+    # Check if index exists
+    index = NoteIndex(config)
+    stats = index.get_stats()
+    
+    if not stats.get("indexed"):
+        click.echo(click.style("⚠️  Notes not indexed yet.", fg="yellow"))
+        click.echo("   Run: navi index")
+        return
+    
+    try:
+        click.echo(f"🔍 Searching {stats['note_count']} notes...")
+        click.echo()
+        
+        result = ask_navi(
+            query_str,
+            config,
+            top_k=top_k,
+            synthesize=not no_synthesis,
+        )
+        
+        if as_json:
+            import json
+            click.echo(json.dumps(result, indent=2, default=str))
+            return
+        
+        # Display answer
+        if result.get("answer"):
+            click.echo(click.style("💬 Answer:", fg="cyan", bold=True))
+            click.echo(result["answer"])
+            click.echo()
+        
+        # Display sources
+        if result.get("sources"):
+            click.echo(click.style("📚 Sources:", fg="yellow", bold=True))
+            for i, source in enumerate(result["sources"], 1):
+                score_pct = int(source["score"] * 100)
+                title = source["title"][:50]
+                click.echo(f"   {i}. {title} ({score_pct}% match)")
+            click.echo()
+        
+        if not result.get("sources"):
+            click.echo("No relevant notes found for your query.")
+    
+    except AskNaviError as e:
+        click.echo(click.style(f"✗ {e}", fg="red"))
+
+
+# =============================================================================
+# INDEX - Build/rebuild the notes index
+# =============================================================================
+
+@main.command("index")
+@click.option("--force", "-f", is_flag=True, help="Force re-index all notes")
+def index_command(force: bool):
+    """
+    Build or rebuild the notes index for semantic search.
+    
+    Run this after creating new voice notes to make them searchable
+    with 'navi ask'.
+    """
+    if not config_exists():
+        click.echo(click.style("⚠️  Navi is not configured yet.", fg="yellow"))
+        click.echo("   Run: navi setup")
+        return
+    
+    from navi.ask import NoteIndex, AskNaviError
+    
+    config = load_config()
+    vault_path = config["output"]["vault_path"]
+    subfolder = config["output"].get("subfolder", "")
+    
+    click.echo(click.style("📚 Building notes index...", fg="cyan", bold=True))
+    click.echo(f"   Vault: {vault_path}")
+    if subfolder:
+        click.echo(f"   Subfolder: {subfolder}")
+    click.echo()
+    
+    def progress(current, total, message):
+        click.echo(f"   [{current}/{total}] {message}", nl=False)
+        click.echo("\r", nl=False)
+    
+    try:
+        index = NoteIndex(config)
+        stats = index.index_vault(
+            vault_path,
+            subfolder,
+            force=force,
+            progress_callback=progress,
+        )
+        
+        click.echo()  # Clear progress line
+        click.echo()
+        click.echo(click.style("✓ Indexing complete!", fg="green", bold=True))
+        click.echo(f"   Indexed: {stats['indexed']} notes")
+        click.echo(f"   Skipped: {stats['skipped']} (unchanged)")
+        click.echo(f"   Removed: {stats['removed']} (deleted)")
+        if stats.get("errors"):
+            click.echo(f"   Errors:  {stats['errors']}")
+        click.echo()
+        click.echo("You can now search with: navi ask \"your question\"")
+    
+    except AskNaviError as e:
+        click.echo(click.style(f"\n✗ {e}", fg="red"))
+
+
+# =============================================================================
+# WAKE WORD - Configure voice activation
+# =============================================================================
+
+@main.group("wake")
+def wake_group():
+    """Configure wake word detection ("Listen Navi")."""
+    pass
+
+
+@wake_group.command("enable")
+def wake_enable():
+    """Enable wake word detection."""
+    if not config_exists():
+        click.echo(click.style("⚠️  Navi is not configured yet.", fg="yellow"))
+        click.echo("   Run: navi setup")
+        return
+    
+    from navi.wakeword import check_vosk_available, download_vosk_model
+    
+    # Check if Vosk is ready
+    available, message = check_vosk_available()
+    
+    if not available:
+        click.echo(click.style("Setting up wake word detection...", fg="yellow"))
+        
+        # Check if vosk package is installed
+        try:
+            import vosk
+        except ImportError:
+            click.echo("Installing Vosk speech recognition...")
+            try:
+                subprocess.run(
+                    [sys.executable, "-m", "pip", "install", "vosk"],
+                    check=True,
+                    capture_output=True,
+                )
+                click.echo(click.style("✓ Vosk installed", fg="green"))
+            except subprocess.CalledProcessError:
+                click.echo(click.style("✗ Failed to install Vosk", fg="red"))
+                click.echo("  Try manually: pip install vosk")
+                return
+        
+        # Download model
+        click.echo("Downloading speech model (~40MB)...")
+        try:
+            download_vosk_model()
+            click.echo(click.style("✓ Model downloaded", fg="green"))
+        except Exception as e:
+            click.echo(click.style(f"✗ Failed to download model: {e}", fg="red"))
+            return
+    
+    # Update config
+    config = load_config()
+    if "wake_word" not in config:
+        config["wake_word"] = {}
+    
+    config["wake_word"]["enabled"] = True
+    config["wake_word"]["phrases"] = ["listen navi", "hey navi", "navi"]
+    save_config(config)
+    
+    click.echo()
+    click.echo(click.style("✓ Wake word enabled!", fg="green", bold=True))
+    click.echo()
+    click.echo("Say any of these to start recording:")
+    for phrase in config["wake_word"]["phrases"]:
+        click.echo(f"   • \"{phrase.title()}\"")
+    click.echo()
+    click.echo("Restart Navi for changes to take effect:")
+    click.echo("   navi stop && navi start")
+
+
+@wake_group.command("disable")
+def wake_disable():
+    """Disable wake word detection."""
+    if not config_exists():
+        click.echo("Navi is not configured")
+        return
+    
+    config = load_config()
+    if "wake_word" not in config:
+        config["wake_word"] = {}
+    
+    config["wake_word"]["enabled"] = False
+    save_config(config)
+    
+    click.echo(click.style("✓ Wake word disabled", fg="green"))
+    click.echo()
+    click.echo("Use the hotkey to start recording instead.")
+    click.echo("Restart Navi for changes to take effect:")
+    click.echo("   navi stop && navi start")
+
+
+@wake_group.command("status")
+def wake_status():
+    """Show wake word configuration."""
+    if not config_exists():
+        click.echo("Navi is not configured")
+        return
+    
+    from navi.wakeword import check_vosk_available
+    
+    config = load_config()
+    wake_config = config.get("wake_word", {})
+    enabled = wake_config.get("enabled", False)
+    
+    click.echo(click.style("\n🎙️  Wake Word Status\n", fg="cyan", bold=True))
+    
+    # Check Vosk availability
+    available, message = check_vosk_available()
+    if available:
+        click.echo(click.style("✓ Vosk is ready", fg="green"))
+    else:
+        click.echo(click.style(f"✗ {message}", fg="yellow"))
+    
+    # Show enabled status
+    if enabled:
+        click.echo(click.style("✓ Wake word is enabled", fg="green"))
+        phrases = wake_config.get("phrases", ["listen navi"])
+        click.echo(f"   Phrases: {', '.join(phrases)}")
+    else:
+        click.echo("Wake word is disabled")
+        click.echo("   Enable with: navi wake enable")
+    
+    click.echo()
+
+
+@wake_group.command("setup")
+def wake_setup():
+    """Download Vosk model for wake word detection."""
+    from navi.wakeword import download_vosk_model, check_vosk_available
+    
+    available, message = check_vosk_available()
+    
+    if available:
+        click.echo(click.style("✓ Vosk is already set up", fg="green"))
+        click.echo(f"   {message}")
+        return
+    
+    click.echo("Setting up wake word detection...")
+    
+    # Check/install vosk package
+    try:
+        import vosk
+        click.echo(click.style("✓ Vosk package installed", fg="green"))
+    except ImportError:
+        click.echo("Installing Vosk package...")
+        try:
+            subprocess.run(
+                [sys.executable, "-m", "pip", "install", "vosk"],
+                check=True,
+            )
+            click.echo(click.style("✓ Vosk installed", fg="green"))
+        except subprocess.CalledProcessError:
+            click.echo(click.style("✗ Failed to install Vosk", fg="red"))
+            return
+    
+    # Download model
+    click.echo("Downloading speech recognition model (~40MB)...")
+    try:
+        model_path = download_vosk_model()
+        click.echo(click.style(f"✓ Model installed: {model_path}", fg="green"))
+    except Exception as e:
+        click.echo(click.style(f"✗ Failed: {e}", fg="red"))
+        return
+    
+    click.echo()
+    click.echo(click.style("✓ Wake word setup complete!", fg="green", bold=True))
+    click.echo("   Enable with: navi wake enable")
 
 
 if __name__ == "__main__":

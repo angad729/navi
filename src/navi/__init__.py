@@ -7,7 +7,7 @@ and LLM-powered cleanup, saving directly to your Obsidian vault.
 
 import sys
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 __author__ = "angad729"
 
 # Check Python version at import time

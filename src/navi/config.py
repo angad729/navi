@@ -152,6 +152,21 @@ DEFAULT_CONFIG = {
     "daemon": {
         "auto_start": False,
     },
+    # Wake word configuration (v0.2)
+    "wake_word": {
+        "enabled": False,  # Enable with: navi wake enable
+        "phrases": ["listen navi", "hey navi", "navi"],
+        "sensitivity": 0.5,  # 0.0-1.0, higher = more sensitive
+        "cooldown": 2.0,  # Seconds between detections
+    },
+    # Ask Navi configuration (v0.2)
+    "ask_navi": {
+        "embedding_provider": "auto",  # auto, ollama, sentence-transformers
+        "ollama_model": "nomic-embed-text",  # Embedding model for Ollama
+        "st_model": "all-MiniLM-L6-v2",  # Embedding model for sentence-transformers
+        "search_threshold": 0.3,  # Minimum similarity score (0-1)
+        "top_k": 5,  # Number of results to retrieve
+    },
 }
 
 

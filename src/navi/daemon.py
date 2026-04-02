@@ -158,14 +158,65 @@ def run_daemon() -> None:
         "hotkey_listener": hotkey_listener,
     }
     
+    # Initialize wake word listener if enabled
+    wake_listener = None
+    wake_config = config.get("wake_word", {})
+    
+    if wake_config.get("enabled", False):
+        try:
+            from navi.wakeword import WakeWordListener
+            
+            wake_listener = WakeWordListener(config)
+            components["wake_listener"] = wake_listener
+            
+            # Set up wake word callback to trigger recording
+            def on_wake_detected():
+                """Called when wake word is detected."""
+                print("[Navi] Wake word detected!")
+                
+                # Don't trigger if already recording
+                if recorder.is_recording:
+                    return
+                
+                # Start recording (same as hotkey press)
+                recorder.start_recording()
+            
+            wake_listener.on_wake(on_wake_detected)
+            
+            # Pause wake word detection while recording
+            def on_recording_start():
+                if wake_listener:
+                    wake_listener.pause()
+            
+            def on_recording_stop(audio_path):
+                if wake_listener:
+                    wake_listener.resume()
+            
+            # Register callbacks with recorder using the public API
+            recorder.on_recording_start(on_recording_start)
+            recorder.on_recording_stop(on_recording_stop)
+            
+            print("[Navi] Wake word detection enabled")
+        
+        except ImportError as e:
+            print(f"[Navi] Wake word not available: {e}")
+        except Exception as e:
+            print(f"[Navi] Failed to initialize wake word: {e}")
+    
     def cleanup():
         """Clean up all components."""
         if recorder.is_recording:
             recorder.stop_recording()
         hotkey_listener.stop()
+        if wake_listener:
+            wake_listener.stop()
     
     # Start hotkey listener in a thread
     hotkey_listener.start()
+    
+    # Start wake word listener if enabled
+    if wake_listener:
+        wake_listener.start()
     
     # Check if menubar is enabled
     if config["feedback"]["menubar_icon"]:

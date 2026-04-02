@@ -81,3 +81,6 @@ venv.bak/
 *.wav
 *.mp3
 *.m4a
+
+# Root-level test scripts (tests go in tests/)
+/test_*.py
