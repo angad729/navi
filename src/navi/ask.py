@@ -262,12 +262,30 @@ class NoteIndex:
         self.conn.commit()
     
     def _serialize_embedding(self, embedding: np.ndarray) -> bytes:
-        """Serialize embedding to bytes for storage."""
         return embedding.tobytes()
-    
-    def _deserialize_embedding(self, data: bytes, dim: int = 384) -> np.ndarray:
-        """Deserialize embedding from bytes."""
+
+    def _deserialize_embedding(self, data: bytes) -> np.ndarray:
         return np.frombuffer(data, dtype=np.float32)
+
+    def _upsert_note(self, note: dict[str, Any], embedding: np.ndarray) -> None:
+        """Insert or replace a single note + embedding in the database."""
+        content_hash = _get_content_hash(note["searchable_text"])
+        self.conn.execute("""
+            INSERT OR REPLACE INTO notes
+            (path, title, created, modified, summary, transcript, tags, content_hash, embedding)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            note["path"],
+            note.get("title", ""),
+            note.get("created", ""),
+            note.get("modified", ""),
+            note.get("summary", ""),
+            note.get("transcript", ""),
+            json.dumps(note.get("tags", [])),
+            content_hash,
+            self._serialize_embedding(embedding),
+        ))
+        self.conn.commit()
     
     def index_vault(
         self,
@@ -363,26 +381,8 @@ class NoteIndex:
             
             # Store in database
             for note, embedding in zip(notes_to_embed, embeddings):
-                content_hash = _get_content_hash(note["searchable_text"])
-                
-                self.conn.execute("""
-                    INSERT OR REPLACE INTO notes 
-                    (path, title, created, modified, summary, transcript, tags, content_hash, embedding)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, (
-                    note["path"],
-                    note.get("title", ""),
-                    note.get("created", ""),
-                    note.get("modified", ""),
-                    note.get("summary", ""),
-                    note.get("transcript", ""),
-                    json.dumps(note.get("tags", [])),
-                    content_hash,
-                    self._serialize_embedding(embedding),
-                ))
+                self._upsert_note(note, embedding)
                 stats["indexed"] += 1
-            
-            self.conn.commit()
         
         # Remove notes that no longer exist
         existing_paths = [
@@ -422,45 +422,17 @@ class NoteIndex:
             if note is None:
                 return False
 
-            path = str(filepath)
             content_hash = _get_content_hash(note["searchable_text"])
-
             existing = self.conn.execute(
                 "SELECT content_hash FROM notes WHERE path = ?",
-                (path,)
+                (note["path"],)
             ).fetchone()
 
             if existing and existing["content_hash"] == content_hash:
                 return True  # Already up to date
 
             embedding = _generate_embeddings([note["searchable_text"]], self.config)[0]
-
-            self.conn.execute("""
-                INSERT OR REPLACE INTO notes
-                (path, title, created, modified, summary, transcript, tags, content_hash, embedding)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                path,
-                note.get("title", ""),
-                note.get("created", ""),
-                note.get("modified", ""),
-                note.get("summary", ""),
-                note.get("transcript", ""),
-                json.dumps(note.get("tags", [])),
-                content_hash,
-                self._serialize_embedding(embedding),
-            ))
-            self.conn.commit()
-
-            # Update meta count and timestamp
-            if INDEX_META.exists():
-                meta = json.loads(INDEX_META.read_text())
-                meta["note_count"] = self.conn.execute(
-                    "SELECT COUNT(*) FROM notes"
-                ).fetchone()[0]
-                meta["last_indexed"] = datetime.now().isoformat()
-                INDEX_META.write_text(json.dumps(meta, indent=2))
-
+            self._upsert_note(note, embedding)
             return True
 
         except Exception as e:
@@ -520,12 +492,12 @@ class NoteIndex:
     
     def get_stats(self) -> dict[str, Any]:
         """Get index statistics."""
-        if not INDEX_META.exists():
+        try:
+            meta = json.loads(INDEX_META.read_text())
+        except (FileNotFoundError, json.JSONDecodeError):
             return {"indexed": False}
-        
-        meta = json.loads(INDEX_META.read_text())
+
         note_count = self.conn.execute("SELECT COUNT(*) FROM notes").fetchone()[0]
-        
         return {
             "indexed": True,
             "note_count": note_count,

@@ -11,6 +11,19 @@ from pynput import keyboard
 from pynput.keyboard import Key, KeyCode
 
 
+MODIFIER_SYMBOLS = {
+    "cmd": "⌘", "command": "⌘",
+    "shift": "⇧",
+    "ctrl": "⌃", "control": "⌃",
+    "alt": "⌥", "option": "⌥",
+}
+
+
+def format_hotkey(modifiers: list[str], key: str) -> str:
+    """Return a human-readable hotkey string, e.g. '⌘⇧R'."""
+    return "".join(MODIFIER_SYMBOLS.get(m.lower(), m) for m in modifiers) + key.upper()
+
+
 # Map config modifier names to pynput keys
 MODIFIER_MAP = {
     "cmd": Key.cmd,
@@ -126,16 +139,7 @@ class HotkeyListener:
     @property
     def hotkey_string(self) -> str:
         """Get human-readable hotkey string."""
-        parts = []
-        for mod in self.config["hotkey"]["modifiers"]:
-            if mod.lower() in ("cmd", "command"):
-                parts.append("⌘")
-            elif mod.lower() == "shift":
-                parts.append("⇧")
-            elif mod.lower() in ("ctrl", "control"):
-                parts.append("⌃")
-            elif mod.lower() in ("alt", "option"):
-                parts.append("⌥")
-        
-        parts.append(self.config["hotkey"]["key"].upper())
-        return "".join(parts)
+        return format_hotkey(
+            self.config["hotkey"]["modifiers"],
+            self.config["hotkey"]["key"],
+        )

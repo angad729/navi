@@ -56,6 +56,13 @@ class MenubarApp(rumps.App):
         self.hotkey_listener = hotkey_listener
         self.feedback = FeedbackManager(config)
         self._recording_timer: rumps.Timer | None = None
+
+        # Persistent index connection — reused across recordings
+        try:
+            from navi.ask import NoteIndex
+            self._note_index: NoteIndex | None = NoteIndex(config)
+        except Exception:
+            self._note_index = None
         
         # Set up recording callbacks
         self.recorder.on_recording_start(self._on_recording_start)
@@ -251,17 +258,14 @@ class MenubarApp(rumps.App):
             self._safe_reset_status()
 
             # Incrementally update the search index with the new note
-            try:
-                from navi.ask import NoteIndex
-                NoteIndex(self.config).index_note(filepath)
-            except Exception as e:
-                print(f"Auto-index error: {e}")
+            if self._note_index:
+                try:
+                    self._note_index.index_note(filepath)
+                except Exception as e:
+                    print(f"Auto-index error: {e}")
 
-            # Update recent notes on main thread
-            try:
-                self._update_recent_notes()
-            except Exception:
-                pass
+            # Dispatch menu update to main thread (AppKit objects are not thread-safe)
+            rumps.Timer(lambda _: self._update_recent_notes(), 0).start()
             
         except Exception as e:
             print(f"Processing error: {e}")

@@ -31,6 +31,7 @@ from navi.config import (
     ensure_config_dirs,
 )
 from navi.daemon import get_pid_file, is_daemon_running, start_daemon, stop_daemon
+from navi.hotkey import format_hotkey
 from navi.launchd import install_launchd, uninstall_launchd, is_launchd_installed
 
 
@@ -273,13 +274,7 @@ def setup():
     click.echo(click.style("🎉 Setup complete!", fg="cyan", bold=True))
     click.echo()
 
-    # Build hotkey string from config
-    mods = config["hotkey"]["modifiers"]
-    key = config["hotkey"]["key"].upper()
-    hotkey_str = "".join(
-        {"cmd": "⌘", "command": "⌘", "shift": "⇧", "ctrl": "⌃", "control": "⌃", "alt": "⌥", "option": "⌥"}.get(m.lower(), m)
-        for m in mods
-    ) + key
+    hotkey_str = format_hotkey(config["hotkey"]["modifiers"], config["hotkey"]["key"])
 
     click.echo("Next steps:")
     click.echo(f"  1. Start Navi:  {click.style('navi start', fg='green')}")
@@ -317,8 +312,9 @@ def _setup_ollama(config: dict) -> None:
                 capture_output=True,
                 check=True,
             )
-        except Exception:
-            pass  # Non-fatal — pull will fail with a clear error if still missing
+        except Exception as e:
+            click.echo(click.style(f"⚠️  Could not create Ollama SSH key: {e}", fg="yellow"))
+            click.echo("  Model pull may fail. If so, run: ssh-keygen -t ed25519 -f ~/.ollama/id_ed25519 -N \"\"")
 
     if ollama_installed:
         click.echo(click.style("✓ Ollama is already installed", fg="green"))
@@ -510,11 +506,7 @@ def start():
     start_daemon()
     click.echo(click.style("✓ Navi is now running", fg="green"))
     
-    # Show hotkey reminder
-    mods = config["hotkey"]["modifiers"]
-    key = config["hotkey"]["key"].upper()
-    hotkey_str = "+".join([m.title() for m in mods] + [key])
-    click.echo(f"   Press {click.style(hotkey_str, fg='yellow')} to start/stop recording")
+    click.echo(f"   Press {click.style(format_hotkey(config['hotkey']['modifiers'], config['hotkey']['key']), fg='yellow')} to start/stop recording")
 
 
 @main.command()
@@ -541,10 +533,7 @@ def status():
             click.echo(f"   PID: {pid}")
         
         config = load_config()
-        mods = config["hotkey"]["modifiers"]
-        key = config["hotkey"]["key"].upper()
-        hotkey_str = "+".join([m.title() for m in mods] + [key])
-        click.echo(f"   Hotkey: {hotkey_str}")
+        click.echo(f"   Hotkey: {format_hotkey(config['hotkey']['modifiers'], config['hotkey']['key'])}")
         
         # Show LLM provider
         provider = config.get("llm", {}).get("provider", "unknown")
@@ -625,11 +614,7 @@ def show_config():
     
     click.echo(click.style("\n📋 Navi Configuration\n", fg="cyan", bold=True))
     
-    # Hotkey
-    mods = cfg["hotkey"]["modifiers"]
-    key = cfg["hotkey"]["key"].upper()
-    hotkey_str = "+".join([m.title() for m in mods] + [key])
-    click.echo(f"Hotkey:         {click.style(hotkey_str, fg='yellow')}")
+    click.echo(f"Hotkey:         {click.style(format_hotkey(cfg['hotkey']['modifiers'], cfg['hotkey']['key']), fg='yellow')}")
     
     # Whisper
     click.echo(f"Whisper model:  {cfg['whisper']['model']}")

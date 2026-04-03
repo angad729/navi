@@ -112,10 +112,7 @@ class AudioRecorder:
 
                 if self._silence_detection:
                     # Only start checking after min_duration has elapsed
-                    elapsed = (
-                        (datetime.now() - self._start_time).total_seconds()
-                        if self._start_time else 0.0
-                    )
+                    elapsed = (datetime.now() - self._start_time).total_seconds()
                     if elapsed >= self._min_duration:
                         rms = float(np.sqrt(np.mean(data ** 2)))
                         if rms < self._silence_threshold:
