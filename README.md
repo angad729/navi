@@ -7,7 +7,7 @@ Press a hotkey, speak your thoughts, and Navi transcribes them locally with Whis
 **v0.2**: Now with **Ask Navi** for querying your voice notes with natural language!
 
 ![macOS](https://img.shields.io/badge/macOS-Apple_Silicon-000000?style=flat&logo=apple&logoColor=white)
-![Python](https://img.shields.io/badge/Python-3.11--3.13-blue?style=flat&logo=python&logoColor=white)
+![Python](https://img.shields.io/badge/Python-3.11%2B-blue?style=flat&logo=python&logoColor=white)
 ![License](https://img.shields.io/badge/License-MIT-green.svg)
 
 ## ✨ Features
@@ -27,7 +27,7 @@ Press a hotkey, speak your thoughts, and Navi transcribes them locally with Whis
 ## 📋 Requirements
 
 - **macOS** with Apple Silicon (M1/M2/M3/M4)
-- **Python 3.11, 3.12, or 3.13** (⚠️ Python 3.14 not yet supported)
+- **Python 3.11+**
 - **16GB+ RAM** recommended for Whisper large-v3
 - **Homebrew** for installing dependencies
 
@@ -121,7 +121,7 @@ Choose how your transcripts get cleaned up:
 
 | Provider | Cost | Privacy | Setup |
 |----------|------|---------|-------|
-| **Ollama** | Free | 100% Local | `brew install ollama && ollama pull llama3.2` |
+| **Ollama** | Free | 100% Local | `brew install ollama && ollama pull llama3.1:8b` |
 | **OpenAI** | ~$0.001/note | Cloud | API key required |
 | **Anthropic** | ~$0.002/note | Cloud | API key required |
 | **None** | Free | N/A | Raw transcription only |
@@ -217,12 +217,12 @@ whisper:
 llm:
   provider: ollama  # or: openai, anthropic, none
   ollama:
-    model: llama3.2
+    model: llama3.1:8b
     host: http://localhost:11434
 
 output:
   vault_path: /path/to/your/obsidian/vault
-  subfolder: voice_notes
+  subfolder: Navi/Notes
   filename_template: "{title} - {timestamp}"
 
 feedback:
@@ -269,9 +269,9 @@ ollama serve
 2. Check index status: `navi status`
 3. Try broader search terms
 
-### Python 3.14 errors
+### Python version issues
 
-Navi requires Python 3.11-3.13. Create a venv with the correct version:
+Navi requires Python 3.11+. If your system default is too old:
 
 ```bash
 python3.12 -m venv .venv

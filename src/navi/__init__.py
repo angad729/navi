@@ -12,14 +12,9 @@ __author__ = "angad729"
 
 # Check Python version at import time
 _py_version = sys.version_info
-if _py_version >= (3, 14):
-    raise RuntimeError(
-        f"Navi requires Python 3.11-3.13, but you're using Python {_py_version.major}.{_py_version.minor}.\n"
-        f"Please create a virtual environment with Python 3.12:\n"
-        f"  python3.12 -m venv .venv && source .venv/bin/activate"
-    )
-elif _py_version < (3, 11):
+if _py_version < (3, 11):
     raise RuntimeError(
         f"Navi requires Python 3.11 or later, but you're using Python {_py_version.major}.{_py_version.minor}.\n"
-        f"Please upgrade to Python 3.12 or later."
+        f"Please create a virtual environment with Python 3.12:\n"
+        f"  python3.12 -m venv .venv && source .venv/bin/activate"
     )
