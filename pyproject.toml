@@ -8,7 +8,7 @@ version = "0.2.0"
 description = "Think out loud, capture as notes — hotkey-triggered speech-to-text with local Whisper transcription"
 readme = "README.md"
 license = {text = "MIT"}
-requires-python = ">=3.11,<3.14"
+requires-python = ">=3.11"
 authors = [
     {name = "angad729"}
 ]
