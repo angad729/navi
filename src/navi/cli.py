@@ -16,9 +16,78 @@ Commands:
 
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import click
+
+
+# ─── Wizard animation helpers ────────────────────────────────────────────────
+
+def _typewriter(text: str, delay: float = 0.025) -> None:
+    """Print text character by character for a subtle typing effect."""
+    if not sys.stdout.isatty():
+        click.echo(text)
+        return
+    for char in text:
+        sys.stdout.write(char)
+        sys.stdout.flush()
+        time.sleep(delay)
+    sys.stdout.write("\n")
+    sys.stdout.flush()
+
+
+def _spinner(message: str, duration: float = 0.7) -> None:
+    """Show a brief animated spinner, then clear the line."""
+    if not sys.stdout.isatty():
+        click.echo(f"  {message}")
+        return
+    frames = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+    end = time.time() + duration
+    i = 0
+    while time.time() < end:
+        frame = click.style(frames[i % len(frames)], fg="cyan")
+        sys.stdout.write(f"\r  {frame}  {message}")
+        sys.stdout.flush()
+        time.sleep(0.08)
+        i += 1
+    # Clear the line
+    sys.stdout.write(f"\r{' ' * (len(message) + 8)}\r")
+    sys.stdout.flush()
+
+
+def _step_header(n: int, total: int, title: str) -> None:
+    """Print a step title with a progress-dot indicator."""
+    filled = click.style("●" * n, fg="cyan", bold=True)
+    empty = click.style("○" * (total - n), fg="bright_black")
+    progress = f"  {filled}{empty}  {click.style(f'{n} of {total}', fg='bright_black')}"
+    click.echo(click.style(f"\n  {title}", fg="cyan", bold=True))
+    click.echo(progress)
+    click.echo()
+
+
+def _completion_box(lines: list[tuple[str, str]]) -> None:
+    """
+    Render a rounded box summarising the final configuration.
+
+    lines: list of (label, value) tuples.
+    """
+    label_w = max(len(l) for l, _ in lines)
+    value_w = max(len(v) for _, v in lines)
+    inner_w = label_w + value_w + 5  # padding
+    top    = "  ╭" + "─" * inner_w + "╮"
+    bottom = "  ╰" + "─" * inner_w + "╯"
+
+    click.echo(click.style(top, fg="cyan"))
+    for label, value in lines:
+        label_str = click.style(label.ljust(label_w), fg="bright_black")
+        value_str = click.style(value, fg="white", bold=True)
+        row = f"  │  {label_str}  {value_str}  │"
+        # pad to keep box width consistent
+        pad = inner_w - label_w - len(value) - 5
+        row = f"  │  {label_str}  {value_str}{' ' * max(0, pad)}  │"
+        click.echo(row)
+    click.echo(click.style(bottom, fg="cyan"))
 
 from navi.config import (
     DEFAULT_CONFIG,
@@ -82,176 +151,160 @@ def main():
 @main.command()
 def setup():
     """Interactive first-time configuration wizard."""
+    TOTAL_STEPS = 5
+
+    # ── Animated intro ────────────────────────────────────────────────────────
     click.echo()
-    click.echo(click.style("🧚 Welcome to Navi!", fg="cyan", bold=True))
-    click.echo(click.style("   Think out loud. Capture as notes.\n", fg="cyan"))
-    
-    # Step 0: Check dependencies (ffmpeg)
-    click.echo(click.style("Checking dependencies...", fg="yellow", bold=True))
-    
+    click.echo(click.style("  🧚  Navi", fg="cyan", bold=True))
+    _typewriter(click.style("  Think out loud. Capture as notes.", fg="bright_black"))
+    click.echo()
+
+    # ── Step 0: Dependencies ──────────────────────────────────────────────────
+    _spinner("Checking dependencies")
     if _check_ffmpeg():
-        click.echo(click.style("✓ ffmpeg is installed", fg="green"))
+        click.echo(click.style("  ✓  ffmpeg", fg="green"))
     else:
-        click.echo("ffmpeg is required for audio processing but is not installed.")
-        if click.confirm("Would you like to install ffmpeg now?", default=True):
-            click.echo("Installing ffmpeg via Homebrew...")
+        click.echo(click.style("  ffmpeg is required for audio processing but is not installed.", fg="yellow"))
+        if click.confirm("  Install ffmpeg now via Homebrew?", default=True):
+            click.echo("  Installing...")
             if _install_ffmpeg():
-                click.echo(click.style("✓ ffmpeg installed successfully", fg="green"))
+                click.echo(click.style("  ✓  ffmpeg installed", fg="green"))
             else:
-                click.echo(click.style("✗ Failed to install ffmpeg", fg="red"))
-                click.echo("  Please install manually: brew install ffmpeg")
-                click.echo("  Then run 'navi setup' again.")
+                click.echo(click.style("  ✗  Install failed. Run: brew install ffmpeg", fg="red"))
                 return
         else:
-            click.echo(click.style("✗ ffmpeg is required. Please install it:", fg="red"))
-            click.echo("  brew install ffmpeg")
+            click.echo(click.style("  ✗  ffmpeg is required. Run: brew install ffmpeg", fg="red"))
             return
-    
-    click.echo()
-    
+
     config = DEFAULT_CONFIG.copy()
-    
-    # Step 1: Whisper model
-    click.echo(click.style("Step 1: Whisper Model", fg="yellow", bold=True))
-    click.echo("Choose a transcription model based on your hardware:\n")
-    
+
+    # ── Step 1: Whisper model ─────────────────────────────────────────────────
+    _step_header(1, TOTAL_STEPS, "Whisper Model")
+    click.echo("  Choose a transcription model based on your hardware:\n")
+
     for key, model in WHISPER_MODELS.items():
-        click.echo(f"  {click.style(key, fg='green', bold=True)}")
-        click.echo(f"    {model['description']}")
-        click.echo(f"    Best for: {model['recommended_for']}\n")
-    
+        key_styled = click.style(f"  {key}", fg="cyan", bold=True)
+        desc_styled = click.style(model["description"], fg="white")
+        hint_styled = click.style(f"Best for: {model['recommended_for']}", fg="bright_black")
+        click.echo(f"{key_styled}")
+        click.echo(f"    {desc_styled}")
+        click.echo(f"    {hint_styled}\n")
+
     model_choice = click.prompt(
-        "Select model",
+        "  Model",
         type=click.Choice(list(WHISPER_MODELS.keys())),
-        default="large-v3"
+        default="large-v3",
     )
     config["whisper"]["model"] = model_choice
-    click.echo()
-    
-    # Step 2: Obsidian vault
-    click.echo(click.style("Step 2: Obsidian Vault", fg="yellow", bold=True))
-    
-    # Try to find existing vaults
+    click.echo(click.style(f"  ✓  {model_choice} selected", fg="green"))
+
+    # ── Step 2: Obsidian vault ────────────────────────────────────────────────
+    _step_header(2, TOTAL_STEPS, "Obsidian Vault")
+
     common_paths = [
         Path.home() / "Documents" / "Obsidian",
         Path.home() / "Obsidian",
         Path.home() / "Documents",
     ]
-    
     existing_vaults = []
     for path in common_paths:
         if path.exists():
             for item in path.iterdir():
                 if item.is_dir() and (item / ".obsidian").exists():
                     existing_vaults.append(item)
-    
+
     if existing_vaults:
-        click.echo("Found existing Obsidian vaults:")
+        click.echo("  Found existing Obsidian vaults:\n")
         for i, vault in enumerate(existing_vaults, 1):
-            click.echo(f"  {i}. {vault}")
-        click.echo(f"  {len(existing_vaults) + 1}. Enter custom path")
-        
-        choice = click.prompt(
-            "Select vault",
-            type=int,
-            default=1
-        )
-        
+            click.echo(f"    {click.style(str(i), fg='cyan', bold=True)}.  {vault}")
+        click.echo(f"    {click.style(str(len(existing_vaults) + 1), fg='bright_black')}.  Enter custom path\n")
+
+        choice = click.prompt("  Select vault", type=int, default=1)
         if choice <= len(existing_vaults):
             vault_path = str(existing_vaults[choice - 1])
         else:
-            vault_path = click.prompt("Enter full path to your Obsidian vault")
+            vault_path = click.prompt("  Path to Obsidian vault")
     else:
-        vault_path = click.prompt("Enter full path to your Obsidian vault")
-    
-    # Validate vault path
+        vault_path = click.prompt("  Path to Obsidian vault")
+
     vault_path = Path(vault_path).expanduser()
     if not vault_path.exists():
-        click.echo(click.style(f"⚠️  Path does not exist: {vault_path}", fg="yellow"))
-        if click.confirm("Create this directory?"):
+        click.echo(click.style(f"  ⚠  Path does not exist: {vault_path}", fg="yellow"))
+        if click.confirm("  Create this directory?"):
             vault_path.mkdir(parents=True)
         else:
-            click.echo("Please run setup again with a valid path.")
+            click.echo("  Run setup again with a valid path.")
             return
-    
+
     config["output"]["vault_path"] = str(vault_path)
-    
-    # Optional subfolder
-    subfolder = click.prompt(
-        "Subfolder for notes",
-        default="Navi/Notes",
-    )
+
+    subfolder = click.prompt("  Subfolder for notes", default="Navi/Notes")
     if subfolder:
         config["output"]["subfolder"] = subfolder
         subfolder_path = vault_path / subfolder
         if not subfolder_path.exists():
             subfolder_path.mkdir(parents=True)
-            click.echo(click.style(f"✓ Created subfolder: {subfolder}", fg="green"))
-    
-    click.echo()
-    
-    # Step 3: Hotkey
-    click.echo(click.style("Step 3: Hotkey", fg="yellow", bold=True))
-    click.echo("Default hotkey is ⌘⇧N (Cmd+Shift+N)")
-    
-    if click.confirm("Use default hotkey?", default=True):
-        pass  # Keep default
-    else:
-        click.echo("Enter key (single letter or number):")
-        key = click.prompt("Key", default="n")
+    click.echo(click.style(f"  ✓  {vault_path}/{subfolder}", fg="green"))
+
+    # ── Step 3: Hotkey ────────────────────────────────────────────────────────
+    _step_header(3, TOTAL_STEPS, "Hotkey")
+    default_hotkey = format_hotkey(
+        DEFAULT_CONFIG["hotkey"]["modifiers"],
+        DEFAULT_CONFIG["hotkey"]["key"],
+    )
+    click.echo(f"  Default: {click.style(default_hotkey, fg='cyan', bold=True)} (Cmd+Shift+N)\n")
+
+    if not click.confirm("  Use default hotkey?", default=True):
+        key = click.prompt("  Key (single letter or number)", default="n")
         config["hotkey"]["key"] = key.lower()
-        
-        click.echo("Modifiers (comma-separated: cmd,shift,ctrl,alt):")
-        mods = click.prompt("Modifiers", default="cmd,shift")
+        mods = click.prompt("  Modifiers (comma-separated: cmd,shift,ctrl,alt)", default="cmd,shift")
         config["hotkey"]["modifiers"] = [m.strip() for m in mods.split(",")]
-    
-    click.echo()
-    
-    # Step 4: LLM Provider
-    click.echo(click.style("Step 4: Transcript Cleanup", fg="yellow", bold=True))
-    click.echo("Choose how to clean up your transcripts:\n")
-    
+
+    hotkey_str = format_hotkey(config["hotkey"]["modifiers"], config["hotkey"]["key"])
+    click.echo(click.style(f"  ✓  {hotkey_str}", fg="green"))
+
+    # ── Step 4: LLM provider ──────────────────────────────────────────────────
+    _step_header(4, TOTAL_STEPS, "Transcript Cleanup")
+    click.echo("  How should Navi clean up and structure your transcripts?\n")
+
     providers = list(LLM_PROVIDERS.keys())
     for i, key in enumerate(providers, 1):
         provider = LLM_PROVIDERS[key]
-        cost_str = f" ({provider['cost']})" if provider.get('cost') else ""
-        click.echo(f"  {click.style(str(i), fg='green', bold=True)}. {provider['name']}{cost_str}")
-        click.echo(f"     {provider['description']}\n")
-    
-    # Force explicit choice - no default
+        cost_str = click.style(f"  {provider['cost']}", fg="bright_black") if provider.get("cost") else ""
+        num = click.style(f"  {i}.", fg="cyan", bold=True)
+        name = click.style(provider["name"], fg="white", bold=True)
+        desc = click.style(provider["description"], fg="bright_black")
+        click.echo(f"{num}  {name}{cost_str}")
+        click.echo(f"     {desc}\n")
+
     while True:
-        choice_str = click.prompt(
-            "Select provider (1-4)",
-            type=str,
-        )
+        choice_str = click.prompt("  Select provider (1-4)", type=str)
         try:
             choice = int(choice_str)
             if 1 <= choice <= len(providers):
                 break
-            click.echo(click.style("Please enter a number between 1 and 4", fg="red"))
+            click.echo(click.style("  Please enter a number between 1 and 4", fg="red"))
         except ValueError:
-            click.echo(click.style("Please enter a number between 1 and 4", fg="red"))
-    
+            click.echo(click.style("  Please enter a number between 1 and 4", fg="red"))
+
     provider_key = providers[choice - 1]
     config["llm"]["provider"] = provider_key
 
-    # Warn before sending any data to cloud providers
+    # Privacy consent for cloud providers
     if provider_key in ("openai", "anthropic"):
         click.echo()
-        click.echo(click.style("⚠  Privacy notice:", fg="yellow", bold=True))
+        click.echo(click.style("  ⚠  Privacy notice", fg="yellow", bold=True))
         click.echo(
-            f"   Your voice transcripts will be sent to {LLM_PROVIDERS[provider_key]['name']} servers\n"
-            "   for processing. Do not use this option if your notes contain sensitive\n"
-            "   or confidential information.\n"
-            f"   Estimated cost: {LLM_PROVIDERS[provider_key].get('cost', 'unknown')} per note."
+            f"  Your transcripts will be sent to {LLM_PROVIDERS[provider_key]['name']} servers.\n"
+            "  Don't use this if your notes contain confidential information.\n"
+            f"  Estimated cost: {LLM_PROVIDERS[provider_key].get('cost', 'unknown')} per note."
         )
         click.echo()
-        if not click.confirm("I understand and want to continue", default=False):
-            click.echo(click.style("Switched to Ollama (local, private).", fg="green"))
+        if not click.confirm("  I understand, continue with cloud provider?", default=False):
+            click.echo(click.style("  Switched to Ollama (local, private).", fg="cyan"))
             provider_key = "ollama"
             config["llm"]["provider"] = "ollama"
 
-    # Handle provider-specific setup
     if provider_key == "ollama":
         _setup_ollama(config)
     elif provider_key == "openai":
@@ -259,47 +312,51 @@ def setup():
     elif provider_key == "anthropic":
         _setup_anthropic_key()
     elif provider_key == "none":
-        click.echo(click.style("✓ Skipping cleanup - raw transcriptions will be saved", fg="green"))
-    
+        click.echo(click.style("  ✓  Raw transcriptions will be saved as-is", fg="green"))
+
+    # ── Step 5: Feedback preferences ─────────────────────────────────────────
+    _step_header(5, TOTAL_STEPS, "Preferences")
+
+    config["feedback"]["sounds"] = click.confirm("  Sound effects?", default=True)
+    config["feedback"]["notifications"] = click.confirm("  macOS notifications?", default=True)
+    config["feedback"]["menubar_icon"] = click.confirm("  Show menubar icon?", default=True)
+
+    # ── Save + auto-start ─────────────────────────────────────────────────────
     click.echo()
-    
-    # Step 5: Feedback preferences
-    click.echo(click.style("Step 5: Feedback Preferences", fg="yellow", bold=True))
-    
-    config["feedback"]["sounds"] = click.confirm("Enable sound feedback?", default=True)
-    config["feedback"]["notifications"] = click.confirm("Enable macOS notifications?", default=True)
-    config["feedback"]["menubar_icon"] = click.confirm("Show menubar icon?", default=True)
-    
-    click.echo()
-    
-    # Save config
     ensure_config_dirs()
     save_config(config)
-    
-    click.echo(click.style("✓ Configuration saved!", fg="green", bold=True))
-    click.echo()
-    
-    # Offer to install auto-start
-    if click.confirm("Enable auto-start on login?", default=True):
+
+    auto_start = click.confirm("  Enable auto-start on login?", default=True)
+    if auto_start:
         install_launchd()
         config["daemon"]["auto_start"] = True
         save_config(config)
-        click.echo(click.style("✓ Auto-start enabled", fg="green"))
-    
+
+    # ── Completion screen ─────────────────────────────────────────────────────
     click.echo()
-    click.echo(click.style("🎉 Setup complete!", fg="cyan", bold=True))
+    click.echo(click.style("  🎉  You're all set!", fg="cyan", bold=True))
     click.echo()
 
-    hotkey_str = format_hotkey(config["hotkey"]["modifiers"], config["hotkey"]["key"])
+    provider_display = LLM_PROVIDERS.get(provider_key, {}).get("name", provider_key)
+    vault_display = str(vault_path).replace(str(Path.home()), "~")
+    subfolder_display = config["output"].get("subfolder", "")
+    notes_path = f"{vault_display}/{subfolder_display}" if subfolder_display else vault_display
 
-    click.echo("Next steps:")
-    click.echo(f"  1. Start Navi:  {click.style('navi start', fg='green')}")
-    click.echo(f"  2. Press {click.style(hotkey_str, fg='yellow')} to start recording")
-    click.echo(f"  3. Press {click.style(hotkey_str, fg='yellow')} again to stop and save")
+    _completion_box([
+        ("Hotkey",    hotkey_str),
+        ("Whisper",   config["whisper"]["model"]),
+        ("LLM",       provider_display),
+        ("Notes",     notes_path),
+        ("Auto-start", "on" if auto_start else "off"),
+    ])
+
     click.echo()
-    click.echo("Optional:")
-    click.echo(f"  • Re-index all existing notes: {click.style('navi index', fg='green')}")
-    click.echo(f"  • Query your notes:            {click.style('navi ask \"your question\"', fg='green')}")
+    click.echo(f"  {click.style('1.', fg='bright_black')} Start Navi:   {click.style('navi start', fg='cyan')}")
+    click.echo(f"  {click.style('2.', fg='bright_black')} Press         {click.style(hotkey_str, fg='cyan', bold=True)} to record")
+    click.echo(f"  {click.style('3.', fg='bright_black')} Press         {click.style(hotkey_str, fg='cyan', bold=True)} again to save")
+    click.echo()
+    click.echo(f"  {click.style('navi ask \"your question\"', fg='bright_black')}  — search your notes")
+    click.echo(f"  {click.style('navi index', fg='bright_black')}                — index existing notes")
     click.echo()
 
 
