@@ -143,6 +143,10 @@ def run_daemon() -> None:
     from navi.recorder import AudioRecorder
     from navi.menubar import MenubarApp
     
+    # Write PID file so is_daemon_running() works regardless of how we were launched
+    pid_file = get_pid_file()
+    pid_file.write_text(str(os.getpid()))
+
     config = load_config()
 
     # Clean up any stale temp audio files from a previous crashed session
@@ -176,6 +180,7 @@ def run_daemon() -> None:
         if recorder.is_recording:
             recorder.stop_recording()
         hotkey_listener.stop()
+        get_pid_file().unlink(missing_ok=True)
     
     # Start hotkey listener in a thread
     hotkey_listener.start()
