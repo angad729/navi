@@ -177,9 +177,8 @@ def setup():
     
     # Optional subfolder
     subfolder = click.prompt(
-        "Subfolder for notes (leave empty for vault root)",
-        default="",
-        show_default=False
+        "Subfolder for notes",
+        default="Navi/Notes",
     )
     if subfolder:
         config["output"]["subfolder"] = subfolder
@@ -273,13 +272,23 @@ def setup():
     click.echo()
     click.echo(click.style("🎉 Setup complete!", fg="cyan", bold=True))
     click.echo()
+
+    # Build hotkey string from config
+    mods = config["hotkey"]["modifiers"]
+    key = config["hotkey"]["key"].upper()
+    hotkey_str = "".join(
+        {"cmd": "⌘", "command": "⌘", "shift": "⇧", "ctrl": "⌃", "control": "⌃", "alt": "⌥", "option": "⌥"}.get(m.lower(), m)
+        for m in mods
+    ) + key
+
     click.echo("Next steps:")
     click.echo(f"  1. Start Navi:  {click.style('navi start', fg='green')}")
-    click.echo(f"  2. Press {click.style('⌘⇧N', fg='yellow')} to start recording")
-    click.echo(f"  3. Press {click.style('⌘⇧N', fg='yellow')} again to stop and save")
+    click.echo(f"  2. Press {click.style(hotkey_str, fg='yellow')} to start recording")
+    click.echo(f"  3. Press {click.style(hotkey_str, fg='yellow')} again to stop and save")
     click.echo()
     click.echo("Optional:")
-    click.echo(f"  • Index notes for search: {click.style('navi index', fg='green')}")
+    click.echo(f"  • Re-index all existing notes: {click.style('navi index', fg='green')}")
+    click.echo(f"  • Query your notes:            {click.style('navi ask \"your question\"', fg='green')}")
     click.echo()
 
 
@@ -298,6 +307,19 @@ def _setup_ollama(config: dict) -> None:
     except Exception:
         ollama_installed = False
     
+    # Ensure Ollama SSH key exists (required for model pulls)
+    ollama_key = Path.home() / ".ollama" / "id_ed25519"
+    if not ollama_key.exists():
+        try:
+            ollama_key.parent.mkdir(parents=True, exist_ok=True)
+            subprocess.run(
+                ["ssh-keygen", "-t", "ed25519", "-f", str(ollama_key), "-N", ""],
+                capture_output=True,
+                check=True,
+            )
+        except Exception:
+            pass  # Non-fatal — pull will fail with a clear error if still missing
+
     if ollama_installed:
         click.echo(click.style("✓ Ollama is already installed", fg="green"))
     else:
@@ -369,7 +391,8 @@ def _setup_ollama(config: dict) -> None:
         click.echo(click.style(f"✓ Model '{model}' is available", fg="green"))
     else:
         click.echo(f"Model '{model}' is not downloaded.")
-        if click.confirm(f"Would you like to download '{model}' now? (~2GB)", default=True):
+        size_hint = "~5GB" if "8b" in model or "7b" in model else "~2GB"
+        if click.confirm(f"Would you like to download '{model}' now? ({size_hint})", default=True):
             click.echo(f"Downloading {model}... (this may take a few minutes)")
             try:
                 subprocess.run(

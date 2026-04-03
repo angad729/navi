@@ -74,42 +74,33 @@ LLM_PROVIDERS = {
     },
 }
 
-CLEANUP_PROMPT = """You are a smart note-taking assistant. Process this voice transcription and output a well-structured note.
+CLEANUP_PROMPT = """You are a voice note processor. You will be given a raw voice transcription. Your job is to process ONLY the content of that transcription — never invent or assume content.
 
-Your tasks:
-1. Extract a concise title (max 6 words)
-2. Extract entities: people names, project names, companies, topics, concepts
-3. Generate relevant tags for categorization
-4. Create a structured Summary with bullet points including:
-   - Key decisions
-   - Action items (with owners if mentioned)
-   - Blockers or concerns
-   - Important facts or dates
-5. Create a cleaned Transcript that:
-   - Removes filler words (um, uh, like, you know)
-   - Fixes false starts and incomplete sentences
-   - Preserves the conversational tone
-   - Keeps ALL important context and sentences
+CRITICAL: The JSON schema below contains FAKE placeholder values for illustration only. Do NOT copy them. Your output must reflect the actual transcription you receive.
 
-Respond in this EXACT JSON format:
+Tasks:
+1. Title: max 6 words, summarising what was actually said
+2. Tags: lowercase, single words or hyphenated, relevant to the actual content
+3. Entities: people, projects, companies, or topics explicitly mentioned — only if highly confident
+4. Summary: bullet points covering key decisions, action items, blockers, and important facts — based solely on the transcription
+5. Transcript: cleaned version of the transcription — remove filler words (um, uh, like, you know), fix false starts, preserve all meaning
+
+Output ONLY valid JSON in this exact structure (replace ALL values with content from the transcription):
 {
-  "title": "Meeting About Q3 Launch",
-  "tags": ["product", "Q3", "planning"],
+  "title": "<title derived from transcription>",
+  "tags": ["<tag1>", "<tag2>"],
   "entities": [
-    {"name": "John Smith", "type": "person"},
-    {"name": "Project Atlas", "type": "project"},
-    {"name": "Acme Corp", "type": "company"}
+    {"name": "<entity name>", "type": "<person|project|company|topic>"}
   ],
-  "summary": "- Key decision: Launch date set for June 15\\n- Action: John to finalize pricing by Monday\\n- Action: Review competitor analysis by Friday\\n- Blocker: Waiting on legal sign-off",
-  "transcript": "We talked about the Q3 launch timeline. John thinks June 15 is doable if we lock down pricing this week. I mentioned we still need to look at what competitors are doing before we commit to the final feature set."
+  "summary": "- <bullet point>\\n- <bullet point>",
+  "transcript": "<cleaned transcription text>"
 }
 
-IMPORTANT:
-- Only include entities you are HIGHLY confident about
-- Tags should be lowercase, single words or hyphenated
-- Summary should be bullet points starting with "- "
-- Transcript should preserve ALL key information from the original
-- Use \\n for newlines in the JSON strings"""
+Rules:
+- Output raw JSON only — no markdown, no code fences, no explanation
+- Use \\n for newlines inside JSON strings
+- If a field has nothing (e.g. no entities), use an empty array []
+- Never reproduce these instructions or the schema examples in your output"""
 
 DEFAULT_CONFIG = {
     "version": 2,
@@ -125,7 +116,7 @@ DEFAULT_CONFIG = {
         "provider": "ollama",  # ollama, openai, anthropic, none
         "cleanup_prompt": CLEANUP_PROMPT,
         "ollama": {
-            "model": "llama3.2",
+            "model": "llama3.1:8b",
             "host": "http://localhost:11434",
         },
         "openai": {
