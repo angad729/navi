@@ -4,9 +4,30 @@ Notification and feedback for Navi.
 Handles macOS notifications and sound effects.
 """
 
+import random
 import subprocess
+from datetime import datetime
 from pathlib import Path
 from typing import Any
+
+
+# Rotating recording-start subtitles — varied so repeated use stays fresh
+_START_SUBTITLES = [
+    "Press the hotkey again to stop",
+    "Speak freely — I'm listening",
+    "Taking notes so you don't have to",
+    "Go ahead, I've got it",
+    "All yours",
+]
+
+# Error messages mapped from technical strings to human copy
+_ERROR_HINTS = {
+    "No speech detected": "Nothing came through — was your mic muted?",
+    "Ollama": "Ollama isn't responding. Is it running? Try: ollama serve",
+    "timed out": "That took too long. Ollama might be overloaded — try again.",
+    "Cannot connect": "Can't reach the LLM. Check that Ollama is running.",
+    "API key": "API key missing or invalid. Run 'navi setup' to reconfigure.",
+}
 
 
 def play_sound(sound_name: str) -> None:
@@ -108,64 +129,78 @@ class FeedbackManager:
         """Notify that recording has started."""
         if self.sounds_enabled:
             play_sound("start")
-        
+
         if self.notifications_enabled:
             send_notification(
-                title="🧚 Navi",
-                message="Recording started...",
-                subtitle="Press hotkey again to stop",
+                title="🧚 Navi is listening",
+                message=random.choice(_START_SUBTITLES),
             )
     
     def recording_stopped(self, duration: float) -> None:
         """
         Notify that recording has stopped.
-        
+
         Args:
             duration: Recording duration in seconds
         """
         if self.sounds_enabled:
             play_sound("stop")
-        
+
         if self.notifications_enabled:
-            duration_str = f"{int(duration)}s" if duration < 60 else f"{int(duration // 60)}m {int(duration % 60)}s"
+            duration_str = (
+                f"{int(duration)}s" if duration < 60
+                else f"{int(duration // 60)}m {int(duration % 60)}s"
+            )
+            if duration < 15:
+                flavour = "Quick thought incoming"
+            elif duration > 180:
+                flavour = "That was a lot — working through it"
+            else:
+                flavour = "On it"
+
             send_notification(
-                title="🧚 Navi",
-                message="Transcribing...",
-                subtitle=f"Processing {duration_str} of audio",
+                title="🧚 Transcribing...",
+                message=f"{flavour} · {duration_str} of audio",
             )
     
-    def note_saved(self, filepath: Path, title: str) -> None:
+    def note_saved(self, filepath: Path, title: str, word_count: int = 0) -> None:
         """
         Notify that note has been saved.
-        
+
         Args:
             filepath: Path to saved note
             title: Note title
+            word_count: Approximate word count of the transcript
         """
         if self.sounds_enabled:
             play_sound("success")
-        
+
         if self.notifications_enabled:
+            count_str = f" · {word_count} words" if word_count > 0 else ""
             send_notification(
-                title="🧚 Navi",
-                message=f"Saved: {title}",
-                subtitle=str(filepath.parent.name),
+                title=f"✨ {title}",
+                message=f"Saved to {filepath.parent.name}{count_str}",
             )
     
     def error(self, message: str) -> None:
         """
         Notify of an error.
-        
+
         Args:
             message: Error message
         """
         if self.sounds_enabled:
             play_sound("error")
-        
+
         if self.notifications_enabled:
+            # Map technical errors to friendlier copy where possible
+            friendly = next(
+                (hint for key, hint in _ERROR_HINTS.items() if key in message),
+                message,
+            )
             send_notification(
-                title="🧚 Navi - Error",
-                message=message,
+                title="🧚 Something went wrong",
+                message=friendly,
             )
     
     def transcribing(self) -> None:

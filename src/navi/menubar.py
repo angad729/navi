@@ -5,6 +5,7 @@ Shows recording status in the macOS menu bar using rumps.
 """
 
 import threading
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
 
@@ -12,6 +13,21 @@ import rumps
 
 from navi.config import load_config, save_config
 from navi.notify import FeedbackManager
+
+
+def _time_of_day_status() -> str:
+    """Return a time-aware idle status line."""
+    hour = datetime.now().hour
+    if hour < 6:
+        return "Burning the midnight oil?"
+    elif hour < 12:
+        return "Good morning"
+    elif hour < 17:
+        return "Ready"
+    elif hour < 21:
+        return "Good evening"
+    else:
+        return "Still at it?"
 from navi.output import save_note
 from navi.process import process_transcript, LLMError, process_transcript_simple
 from navi.transcribe import transcribe_audio
@@ -76,7 +92,7 @@ class MenubarApp(rumps.App):
         """Build the dropdown menu."""
         # Status item (non-clickable)
         self.status_item = rumps.MenuItem(
-            title="Ready",
+            title=_time_of_day_status(),
             callback=None,
         )
         
@@ -132,7 +148,7 @@ class MenubarApp(rumps.App):
             
             if not notes:
                 self.recent_menu.add(rumps.MenuItem(
-                    title="No notes yet",
+                    title="Say something — your first note awaits",
                     callback=None,
                 ))
                 return
@@ -209,26 +225,26 @@ class MenubarApp(rumps.App):
         """
         try:
             # Step 1: Transcribe with Whisper
-            self._safe_update_status("Transcribing...")
-            
+            self._safe_update_status("Listening back...")
+
             whisper_model = self.config["whisper"]["model"]
             language = self.config["whisper"].get("language", "en")
-            
+
             result = transcribe_audio(
                 audio_path,
                 model_name=whisper_model,
                 language=language,
             )
-            
+
             transcript = result["text"]
-            
+
             if not transcript.strip():
                 self.feedback.error("No speech detected")
                 self._safe_reset_status()
                 return
-            
+
             # Step 2: Process with LLM (extracts entities, tags, summary, etc.)
-            self._safe_update_status("Processing...")
+            self._safe_update_status("Thinking...")
             
             try:
                 processed = process_transcript(transcript, self.config)
@@ -238,7 +254,7 @@ class MenubarApp(rumps.App):
                 processed = process_transcript_simple(transcript)
             
             # Step 3: Save to vault with structured format
-            self._safe_update_status("Saving...")
+            self._safe_update_status("Writing note...")
             
             metadata = {
                 "duration": duration,
@@ -254,7 +270,8 @@ class MenubarApp(rumps.App):
             )
             
             # Success!
-            self.feedback.note_saved(filepath, processed["title"])
+            word_count = len(processed.get("transcript", "").split())
+            self.feedback.note_saved(filepath, processed["title"], word_count)
             self._safe_reset_status()
 
             # Incrementally update the search index with the new note
@@ -296,7 +313,7 @@ class MenubarApp(rumps.App):
         """Reset to idle state (thread-safe, no Timer)."""
         try:
             self.title = self.ICON_IDLE
-            self.status_item.title = "Ready"
+            self.status_item.title = _time_of_day_status()
         except Exception:
             pass
     
