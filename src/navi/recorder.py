@@ -46,7 +46,14 @@ class AudioRecorder:
         self._recording_thread: Optional[threading.Thread] = None
         self._start_time: Optional[datetime] = None
         self._last_duration: float = 0.0  # Store duration when recording stops
-        
+
+        # Silence detection config
+        recording_config = config.get("recording", {})
+        self._silence_detection = recording_config.get("silence_detection", True)
+        self._silence_threshold = recording_config.get("silence_threshold", 0.02)
+        self._silence_duration = recording_config.get("silence_duration", 3.0)
+        self._min_duration = recording_config.get("min_duration", 2.0)
+
         # Callbacks
         self._on_recording_start: list[Callable] = []
         self._on_recording_stop: list[Callable[[Path], None]] = []
@@ -92,10 +99,37 @@ class AudioRecorder:
     
     def _process_audio_thread(self) -> None:
         """Thread to process audio from queue."""
+        # Silence detection state
+        silence_frames = 0
+        # How many audio blocks of silence = silence_duration seconds
+        frames_per_second = self.SAMPLE_RATE / self.BLOCKSIZE
+        silence_frames_needed = int(self._silence_duration * frames_per_second)
+
         while self._is_recording:
             try:
                 data = self._audio_queue.get(timeout=0.1)
                 self._audio_data.append(data)
+
+                if self._silence_detection:
+                    # Only start checking after min_duration has elapsed
+                    elapsed = (
+                        (datetime.now() - self._start_time).total_seconds()
+                        if self._start_time else 0.0
+                    )
+                    if elapsed >= self._min_duration:
+                        rms = float(np.sqrt(np.mean(data ** 2)))
+                        if rms < self._silence_threshold:
+                            silence_frames += 1
+                        else:
+                            silence_frames = 0
+
+                        if silence_frames >= silence_frames_needed:
+                            # Auto-stop in a separate thread to avoid deadlock
+                            threading.Thread(
+                                target=self.stop_recording, daemon=True
+                            ).start()
+                            break
+
             except queue.Empty:
                 continue
     

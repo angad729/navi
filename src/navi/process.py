@@ -454,6 +454,80 @@ def _clean_title(title: str) -> str:
     return title.strip()
 
 
+def call_llm(prompt: str, config: dict[str, Any]) -> str:
+    """
+    Call the configured LLM with a plain text prompt.
+
+    Returns the response as a plain string, or an empty string if provider is "none"
+    or if the call fails.
+    """
+    llm_config = config.get("llm", {})
+    provider = llm_config.get("provider", "none")
+
+    try:
+        if provider == "ollama":
+            ollama_config = llm_config.get("ollama", {})
+            host = ollama_config.get("host", "http://localhost:11434")
+            model = ollama_config.get("model", "llama3.2")
+            response = requests.post(
+                f"{host}/api/generate",
+                json={
+                    "model": model,
+                    "prompt": prompt,
+                    "stream": False,
+                    "options": {"temperature": 0.3, "num_predict": 500},
+                },
+                timeout=60,
+            )
+            if response.status_code == 200:
+                return response.json().get("response", "").strip()
+
+        elif provider == "openai":
+            api_key = get_api_key("openai")
+            model = llm_config.get("openai", {}).get("model", "gpt-4o-mini")
+            response = requests.post(
+                "https://api.openai.com/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": model,
+                    "messages": [{"role": "user", "content": prompt}],
+                    "temperature": 0.3,
+                    "max_tokens": 500,
+                },
+                timeout=60,
+            )
+            if response.status_code == 200:
+                return response.json()["choices"][0]["message"]["content"].strip()
+
+        elif provider == "anthropic":
+            api_key = get_api_key("anthropic")
+            model = llm_config.get("anthropic", {}).get("model", "claude-3-haiku-20240307")
+            response = requests.post(
+                "https://api.anthropic.com/v1/messages",
+                headers={
+                    "x-api-key": api_key,
+                    "anthropic-version": "2023-06-01",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": model,
+                    "max_tokens": 500,
+                    "messages": [{"role": "user", "content": prompt}],
+                },
+                timeout=60,
+            )
+            if response.status_code == 200:
+                return response.json()["content"][0]["text"].strip()
+
+    except Exception as e:
+        print(f"call_llm error ({provider}): {e}")
+
+    return ""
+
+
 def process_transcript_simple(transcript: str) -> dict[str, Any]:
     """
     Simple transcript processing without LLM.

@@ -409,6 +409,64 @@ class NoteIndex:
         
         return stats
     
+    def index_note(self, filepath: Path) -> bool:
+        """
+        Index a single note file.
+
+        Used for incremental updates after a new note is saved, avoiding a
+        full vault rescan. Returns True if the note was indexed or was already
+        up to date.
+        """
+        try:
+            note = _parse_voice_note(filepath)
+            if note is None:
+                return False
+
+            path = str(filepath)
+            content_hash = _get_content_hash(note["searchable_text"])
+
+            existing = self.conn.execute(
+                "SELECT content_hash FROM notes WHERE path = ?",
+                (path,)
+            ).fetchone()
+
+            if existing and existing["content_hash"] == content_hash:
+                return True  # Already up to date
+
+            embedding = _generate_embeddings([note["searchable_text"]], self.config)[0]
+
+            self.conn.execute("""
+                INSERT OR REPLACE INTO notes
+                (path, title, created, modified, summary, transcript, tags, content_hash, embedding)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                path,
+                note.get("title", ""),
+                note.get("created", ""),
+                note.get("modified", ""),
+                note.get("summary", ""),
+                note.get("transcript", ""),
+                json.dumps(note.get("tags", [])),
+                content_hash,
+                self._serialize_embedding(embedding),
+            ))
+            self.conn.commit()
+
+            # Update meta count and timestamp
+            if INDEX_META.exists():
+                meta = json.loads(INDEX_META.read_text())
+                meta["note_count"] = self.conn.execute(
+                    "SELECT COUNT(*) FROM notes"
+                ).fetchone()[0]
+                meta["last_indexed"] = datetime.now().isoformat()
+                INDEX_META.write_text(json.dumps(meta, indent=2))
+
+            return True
+
+        except Exception as e:
+            print(f"Error indexing {filepath}: {e}")
+            return False
+
     def search(
         self,
         query: str,
@@ -437,29 +495,26 @@ class NoteIndex:
         
         if not rows:
             return []
-        
-        # Calculate similarities
+
+        # Stack all embeddings into a matrix for vectorized cosine similarity
+        note_embeddings = np.vstack([self._deserialize_embedding(row["embedding"]) for row in rows])
+        query_norm = query_embedding / (np.linalg.norm(query_embedding) + 1e-10)
+        note_norms = note_embeddings / (np.linalg.norm(note_embeddings, axis=1, keepdims=True) + 1e-10)
+        similarities = note_norms @ query_norm  # shape: (n_notes,)
+
         results = []
-        
-        for row in rows:
-            note_embedding = self._deserialize_embedding(row["embedding"])
-            
-            # Cosine similarity
-            similarity = np.dot(query_embedding, note_embedding) / (
-                np.linalg.norm(query_embedding) * np.linalg.norm(note_embedding)
-            )
-            
-            if similarity >= threshold:
+        for i, row in enumerate(rows):
+            score = float(similarities[i])
+            if score >= threshold:
                 results.append({
                     "path": row["path"],
                     "title": row["title"],
                     "summary": row["summary"],
                     "transcript": row["transcript"],
                     "tags": json.loads(row["tags"]) if row["tags"] else [],
-                    "score": float(similarity),
+                    "score": score,
                 })
-        
-        # Sort by similarity and return top_k
+
         results.sort(key=lambda x: x["score"], reverse=True)
         return results[:top_k]
     
@@ -527,8 +582,8 @@ def ask_navi(
             "score": result["score"],
         })
         
-        # Use summary if available, otherwise transcript excerpt
-        content = result.get("summary") or result.get("transcript", "")[:500]
+        # Use summary if available, otherwise full transcript
+        content = result.get("summary") or result.get("transcript", "")
         context_parts.append(f"Note {i+1}: {result['title']}\n{content}")
     
     context = "\n\n---\n\n".join(context_parts)
@@ -558,17 +613,14 @@ def _synthesize_answer(
     config: dict[str, Any],
 ) -> str:
     """Use LLM to synthesize an answer from retrieved notes."""
-    from navi.process import _process_with_ollama, _process_with_openai, _process_with_anthropic
-    
-    llm_config = config.get("llm", {})
-    provider = llm_config.get("provider", "none")
-    
+    from navi.process import call_llm
+
+    provider = config.get("llm", {}).get("provider", "none")
+
     if provider == "none":
-        # No LLM - just return a summary of sources
         titles = [r["title"] for r in results[:3]]
         return f"Found {len(results)} relevant notes: {', '.join(titles)}"
-    
-    # Custom prompt for Ask Navi
+
     prompt = f"""You are Navi, a personal voice notes assistant. Answer the user's question based ONLY on the voice notes provided below.
 
 Rules:
@@ -583,78 +635,10 @@ Voice Notes Context:
 Question: {query}
 
 Answer:"""
-    
-    try:
-        import requests
-        
-        if provider == "ollama":
-            ollama_config = llm_config.get("ollama", {})
-            host = ollama_config.get("host", "http://localhost:11434")
-            model = ollama_config.get("model", "llama3.2")
-            
-            response = requests.post(
-                f"{host}/api/generate",
-                json={
-                    "model": model,
-                    "prompt": prompt,
-                    "stream": False,
-                    "options": {"temperature": 0.3, "num_predict": 500},
-                },
-                timeout=60,
-            )
-            
-            if response.status_code == 200:
-                return response.json().get("response", "").strip()
-        
-        elif provider == "openai":
-            from navi.keychain import get_api_key
-            api_key = get_api_key("openai")
-            model = llm_config.get("openai", {}).get("model", "gpt-4o-mini")
-            
-            response = requests.post(
-                "https://api.openai.com/v1/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {api_key}",
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "model": model,
-                    "messages": [{"role": "user", "content": prompt}],
-                    "temperature": 0.3,
-                    "max_tokens": 500,
-                },
-                timeout=60,
-            )
-            
-            if response.status_code == 200:
-                return response.json()["choices"][0]["message"]["content"].strip()
-        
-        elif provider == "anthropic":
-            from navi.keychain import get_api_key
-            api_key = get_api_key("anthropic")
-            model = llm_config.get("anthropic", {}).get("model", "claude-3-haiku-20240307")
-            
-            response = requests.post(
-                "https://api.anthropic.com/v1/messages",
-                headers={
-                    "x-api-key": api_key,
-                    "anthropic-version": "2023-06-01",
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "model": model,
-                    "max_tokens": 500,
-                    "messages": [{"role": "user", "content": prompt}],
-                },
-                timeout=60,
-            )
-            
-            if response.status_code == 200:
-                return response.json()["content"][0]["text"].strip()
-    
-    except Exception as e:
-        print(f"LLM synthesis error: {e}")
-    
-    # Fallback to simple summary
+
+    answer = call_llm(prompt, config)
+    if answer:
+        return answer
+
     titles = [r["title"] for r in results[:3]]
     return f"Found {len(results)} relevant notes: {', '.join(titles)}"

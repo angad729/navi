@@ -152,6 +152,12 @@ DEFAULT_CONFIG = {
     "daemon": {
         "auto_start": False,
     },
+    "recording": {
+        "silence_detection": True,
+        "silence_threshold": 0.02,   # RMS amplitude (0–1); below this = silence
+        "silence_duration": 60.0,    # seconds of continuous silence before auto-stop
+        "min_duration": 2.0,         # minimum recording seconds before silence detection kicks in
+    },
     # Ask Navi configuration (v0.2)
     "ask_navi": {
         "embedding_provider": "auto",  # auto, ollama, sentence-transformers

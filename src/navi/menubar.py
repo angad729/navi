@@ -55,6 +55,7 @@ class MenubarApp(rumps.App):
         self.recorder = recorder
         self.hotkey_listener = hotkey_listener
         self.feedback = FeedbackManager(config)
+        self._recording_timer: rumps.Timer | None = None
         
         # Set up recording callbacks
         self.recorder.on_recording_start(self._on_recording_start)
@@ -154,18 +155,30 @@ class MenubarApp(rumps.App):
         # Repopulate
         self._populate_recent_notes()
     
+    def _update_recording_timer(self, _) -> None:
+        """Tick callback — updates the menubar title with elapsed time."""
+        secs = int(self.recorder.recording_duration)
+        mins = secs // 60
+        secs = secs % 60
+        self.title = f"🔴 {mins}:{secs:02d}" if mins else f"🔴 {secs}s"
+
     def _on_recording_start(self) -> None:
         """Called when recording starts."""
         self.title = self.ICON_RECORDING
         self.status_item.title = "Recording..."
         self.feedback.recording_started()
+        self._recording_timer = rumps.Timer(self._update_recording_timer, 1)
+        self._recording_timer.start()
     
     def _on_recording_stop(self, audio_path: Path) -> None:
         """
         Called when recording stops.
-        
+
         Processes the audio in a background thread.
         """
+        if self._recording_timer:
+            self._recording_timer.stop()
+            self._recording_timer = None
         duration = self.recorder.recording_duration
         self.title = self.ICON_PROCESSING
         self.status_item.title = "Processing..."
@@ -236,7 +249,14 @@ class MenubarApp(rumps.App):
             # Success!
             self.feedback.note_saved(filepath, processed["title"])
             self._safe_reset_status()
-            
+
+            # Incrementally update the search index with the new note
+            try:
+                from navi.ask import NoteIndex
+                NoteIndex(self.config).index_note(filepath)
+            except Exception as e:
+                print(f"Auto-index error: {e}")
+
             # Update recent notes on main thread
             try:
                 self._update_recent_notes()
