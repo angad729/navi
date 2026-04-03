@@ -4,7 +4,9 @@ Output handling for Navi.
 Saves processed transcripts to the configured destination (Obsidian vault).
 """
 
+import os
 import re
+import tempfile
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -48,9 +50,11 @@ def _save_to_obsidian(
     if not vault_path.exists():
         raise ValueError(f"Obsidian vault not found: {vault_path}")
     
-    # Build target directory
+    # Build target directory (guard against path traversal in subfolder)
     if subfolder:
-        target_dir = vault_path / subfolder
+        target_dir = (vault_path / subfolder).resolve()
+        if not str(target_dir).startswith(str(vault_path.resolve())):
+            raise ValueError(f"Subfolder escapes vault: {subfolder}")
         target_dir.mkdir(parents=True, exist_ok=True)
     else:
         target_dir = vault_path
@@ -65,10 +69,20 @@ def _save_to_obsidian(
     
     # Build note content with frontmatter
     note_content = _build_note_content(processed, metadata)
-    
-    # Write file
-    filepath.write_text(note_content, encoding="utf-8")
-    
+
+    # Write atomically to avoid partial files on crash
+    tmp_fd, tmp_path = tempfile.mkstemp(dir=target_dir, suffix=".md.tmp")
+    try:
+        with os.fdopen(tmp_fd, "w", encoding="utf-8") as f:
+            f.write(note_content)
+        os.replace(tmp_path, filepath)
+    except Exception:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
+
     return filepath
 
 
@@ -93,10 +107,20 @@ def _save_to_folder(
     
     # Build note content
     note_content = _build_note_content(processed, metadata)
-    
-    # Write file
-    filepath.write_text(note_content, encoding="utf-8")
-    
+
+    # Write atomically
+    tmp_fd, tmp_path = tempfile.mkstemp(dir=folder_path, suffix=".md.tmp")
+    try:
+        with os.fdopen(tmp_fd, "w", encoding="utf-8") as f:
+            f.write(note_content)
+        os.replace(tmp_path, filepath)
+    except Exception:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
+
     return filepath
 
 
@@ -145,8 +169,8 @@ def _sanitize_filename(name: str) -> str:
     Returns:
         Sanitized name safe for filesystem
     """
-    # Remove or replace problematic characters
-    name = re.sub(r'[<>:"/\\|?*]', "", name)
+    # Remove or replace problematic characters (including path separators and null bytes)
+    name = re.sub(r'[<>:"/\\|?*/\x00]', "", name)
     
     # Replace multiple spaces/underscores with single space
     name = re.sub(r"[\s_]+", " ", name)
@@ -178,14 +202,22 @@ def _ensure_unique_path(filepath: Path) -> Path:
     suffix = filepath.suffix
     parent = filepath.parent
     
+    import secrets
     counter = 1
     while True:
         new_path = parent / f"{stem} ({counter}){suffix}"
         if not new_path.exists():
             return new_path
         counter += 1
-        
-        if counter > 1000:  # Safety limit
+
+        if counter > 5:
+            # Fall back to random suffix to avoid enumeration/timing issues
+            rand = secrets.token_hex(4)
+            new_path = parent / f"{stem}-{rand}{suffix}"
+            if not new_path.exists():
+                return new_path
+
+        if counter > 1000:
             raise ValueError("Too many files with same name")
 
 
@@ -313,8 +345,8 @@ def _insert_entity_links(text: str, entities: list[dict[str, Any]]) -> str:
         if f"[[{name}]]" in result:
             continue
         
-        # Replace first occurrence only
-        result = re.sub(pattern, link, result, count=1, flags=re.IGNORECASE)
+        # Replace first occurrence only (use lambda to prevent backreference injection)
+        result = re.sub(pattern, lambda m: link, result, count=1, flags=re.IGNORECASE)
     
     return result
 

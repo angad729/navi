@@ -29,7 +29,7 @@ def get_plist_content() -> dict:
         "StandardOutPath": str(Path.home() / ".config" / "navi" / "logs" / "navi.log"),
         "StandardErrorPath": str(Path.home() / ".config" / "navi" / "logs" / "navi.log"),
         "EnvironmentVariables": {
-            "PATH": "/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin",
+            "PATH": "/usr/bin:/bin:/opt/homebrew/bin",
         },
         "ProcessType": "Interactive",  # Higher priority for responsive hotkey
     }

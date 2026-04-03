@@ -222,10 +222,10 @@ def _process_with_ollama(
             raise LLMError(f"Ollama returned status {response.status_code}")
         
         data = response.json()
-        result_text = data.get("response", "").strip()
-        
+        result_text = data.get("response", "").strip()[:100_000]
+
         return _parse_json_response(result_text, transcript)
-    
+
     except requests.exceptions.Timeout:
         raise LLMError("Ollama request timed out")
     except requests.exceptions.ConnectionError:
@@ -275,10 +275,10 @@ def _process_with_openai(
             raise LLMError(f"OpenAI API error: {response.status_code}")
         
         data = response.json()
-        result_text = data["choices"][0]["message"]["content"].strip()
-        
+        result_text = data["choices"][0]["message"]["content"].strip()[:100_000]
+
         return _parse_json_response(result_text, transcript)
-    
+
     except requests.exceptions.Timeout:
         raise LLMError("OpenAI request timed out")
     except requests.exceptions.ConnectionError:
@@ -325,10 +325,10 @@ def _process_with_anthropic(
             raise LLMError(f"Anthropic API error: {response.status_code}")
         
         data = response.json()
-        result_text = data["content"][0]["text"].strip()
-        
+        result_text = data["content"][0]["text"].strip()[:100_000]
+
         return _parse_json_response(result_text, transcript)
-    
+
     except requests.exceptions.Timeout:
         raise LLMError("Anthropic request timed out")
     except requests.exceptions.ConnectionError:
@@ -436,21 +436,22 @@ def _clean_title(title: str) -> str:
     """Clean up a title for use in filename."""
     # Remove quotes
     title = title.strip('"\'')
-    
+
     # Remove markdown formatting
     title = re.sub(r"\*\*(.+?)\*\*", r"\1", title)
     title = re.sub(r"\*(.+?)\*", r"\1", title)
-    
-    # Remove characters that are problematic in filenames
-    title = re.sub(r'[<>:"/\\|?*]', "", title)
-    
+
+    # Remove characters that are problematic in filenames or YAML (including newlines)
+    title = title.replace("\n", " ").replace("\r", " ")
+    title = re.sub(r'[<>:"/\\|?*/\x00]', "", title)
+
     # Collapse multiple spaces
     title = re.sub(r"\s+", " ", title)
-    
+
     # Limit length
     if len(title) > 60:
         title = title[:57] + "..."
-    
+
     return title.strip()
 
 
@@ -523,7 +524,8 @@ def call_llm(prompt: str, config: dict[str, Any]) -> str:
                 return response.json()["content"][0]["text"].strip()
 
     except Exception as e:
-        print(f"call_llm error ({provider}): {e}")
+        # Log provider name only — avoid echoing prompt content which may contain PII
+        print(f"call_llm error ({provider}): {type(e).__name__}")
 
     return ""
 

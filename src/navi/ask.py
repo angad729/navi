@@ -18,6 +18,7 @@ import hashlib
 import json
 import re
 import sqlite3
+import threading
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
@@ -233,6 +234,7 @@ class NoteIndex:
     def __init__(self, config: dict[str, Any]):
         """Initialize the index."""
         self.config = config
+        self._db_lock = threading.Lock()
         self._ensure_index_dir()
         self._init_db()
     
@@ -242,9 +244,10 @@ class NoteIndex:
     
     def _init_db(self) -> None:
         """Initialize SQLite database."""
+        db_existed = INDEX_DB.exists()
         self.conn = sqlite3.connect(str(INDEX_DB), check_same_thread=False)
         self.conn.row_factory = sqlite3.Row
-        
+
         self.conn.execute("""
             CREATE TABLE IF NOT EXISTS notes (
                 id INTEGER PRIMARY KEY,
@@ -260,6 +263,11 @@ class NoteIndex:
             )
         """)
         self.conn.commit()
+
+        # Restrict DB file to owner-only if we just created it
+        if not db_existed and INDEX_DB.exists():
+            import os as _os
+            _os.chmod(INDEX_DB, 0o600)
     
     def _serialize_embedding(self, embedding: np.ndarray) -> bytes:
         return embedding.tobytes()
@@ -270,22 +278,23 @@ class NoteIndex:
     def _upsert_note(self, note: dict[str, Any], embedding: np.ndarray) -> None:
         """Insert or replace a single note + embedding in the database."""
         content_hash = _get_content_hash(note["searchable_text"])
-        self.conn.execute("""
-            INSERT OR REPLACE INTO notes
-            (path, title, created, modified, summary, transcript, tags, content_hash, embedding)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            note["path"],
-            note.get("title", ""),
-            note.get("created", ""),
-            note.get("modified", ""),
-            note.get("summary", ""),
-            note.get("transcript", ""),
-            json.dumps(note.get("tags", [])),
-            content_hash,
-            self._serialize_embedding(embedding),
-        ))
-        self.conn.commit()
+        with self._db_lock:
+            self.conn.execute("""
+                INSERT OR REPLACE INTO notes
+                (path, title, created, modified, summary, transcript, tags, content_hash, embedding)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                note["path"],
+                note.get("title", ""),
+                note.get("created", ""),
+                note.get("modified", ""),
+                note.get("summary", ""),
+                note.get("transcript", ""),
+                json.dumps(note.get("tags", [])),
+                content_hash,
+                self._serialize_embedding(embedding),
+            ))
+            self.conn.commit()
     
     def index_vault(
         self,

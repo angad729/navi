@@ -234,7 +234,23 @@ def setup():
     
     provider_key = providers[choice - 1]
     config["llm"]["provider"] = provider_key
-    
+
+    # Warn before sending any data to cloud providers
+    if provider_key in ("openai", "anthropic"):
+        click.echo()
+        click.echo(click.style("⚠  Privacy notice:", fg="yellow", bold=True))
+        click.echo(
+            f"   Your voice transcripts will be sent to {LLM_PROVIDERS[provider_key]['name']} servers\n"
+            "   for processing. Do not use this option if your notes contain sensitive\n"
+            "   or confidential information.\n"
+            f"   Estimated cost: {LLM_PROVIDERS[provider_key].get('cost', 'unknown')} per note."
+        )
+        click.echo()
+        if not click.confirm("I understand and want to continue", default=False):
+            click.echo(click.style("Switched to Ollama (local, private).", fg="green"))
+            provider_key = "ollama"
+            config["llm"]["provider"] = "ollama"
+
     # Handle provider-specific setup
     if provider_key == "ollama":
         _setup_ollama(config)

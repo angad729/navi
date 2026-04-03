@@ -259,6 +259,14 @@ def validate_config(config: dict[str, Any]) -> list[str]:
         errors.append("Obsidian vault path is not set. Run 'navi setup' to configure.")
     elif not Path(vault_path).exists():
         errors.append(f"Obsidian vault path does not exist: {vault_path}")
+    else:
+        # Validate subfolder stays within vault (path traversal guard)
+        subfolder = config.get("output", {}).get("subfolder", "")
+        if subfolder:
+            resolved_vault = Path(vault_path).resolve()
+            resolved_sub = (Path(vault_path) / subfolder).resolve()
+            if not str(resolved_sub).startswith(str(resolved_vault)):
+                errors.append(f"Subfolder escapes vault directory: {subfolder}")
     
     # Check Whisper model
     whisper_model = config.get("whisper", {}).get("model", "")
@@ -355,6 +363,7 @@ def config_exists() -> bool:
 
 
 def get_temp_audio_path() -> Path:
-    """Get path for temporary audio file."""
+    """Get a unique path for a temporary audio file."""
+    import uuid
     ensure_config_dirs()
-    return DEFAULT_TEMP_DIR / "recording.wav"
+    return DEFAULT_TEMP_DIR / f"recording-{uuid.uuid4().hex}.wav"

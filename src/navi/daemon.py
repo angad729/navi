@@ -55,13 +55,17 @@ def start_daemon() -> None:
     # We use the entry point to run the actual daemon
     python_path = sys.executable
     
-    # Open log file for stdout/stderr
+    # Open log file for stdout/stderr (owner-only — may contain note content)
     log = open(log_file, "a")
-    
+    try:
+        os.chmod(log_file, 0o600)
+    except OSError:
+        pass
+
     # Set environment variable to hide Dock icon
     env = os.environ.copy()
     env["PYTHONDONTWRITEBYTECODE"] = "1"
-    
+
     process = subprocess.Popen(
         [python_path, "-m", "navi.daemon", "run"],
         stdout=log,
@@ -69,7 +73,8 @@ def start_daemon() -> None:
         start_new_session=True,  # Detach from terminal
         env=env,
     )
-    
+    log.close()  # Parent doesn't need the fd; child has its own copy
+
     # Write PID file
     pid_file = get_pid_file()
     pid_file.write_text(str(process.pid))
@@ -139,7 +144,15 @@ def run_daemon() -> None:
     from navi.menubar import MenubarApp
     
     config = load_config()
-    
+
+    # Clean up any stale temp audio files from a previous crashed session
+    from navi.config import DEFAULT_TEMP_DIR
+    for stale in DEFAULT_TEMP_DIR.glob("recording-*.wav"):
+        try:
+            stale.unlink()
+        except OSError:
+            pass
+
     # Set up signal handlers for graceful shutdown
     def handle_shutdown(signum, frame):
         cleanup()

@@ -40,6 +40,7 @@ class AudioRecorder:
         """
         self.config = config
         self._is_recording = False
+        self._stop_lock = threading.Lock()
         self._audio_queue: queue.Queue = queue.Queue()
         self._audio_data: list[np.ndarray] = []
         self._stream: Optional[sd.InputStream] = None
@@ -180,21 +181,20 @@ class AudioRecorder:
     def stop_recording(self) -> Optional[Path]:
         """
         Stop recording and save audio to file.
-        
+
         Returns:
             Path to saved audio file, or None if no audio was recorded
         """
-        if not self._is_recording:
-            return None
+        with self._stop_lock:
+            if not self._is_recording:
+                return None
+            self._is_recording = False  # Flip under lock so only one caller proceeds
         
         # Capture duration before stopping
         if self._start_time:
             self._last_duration = (datetime.now() - self._start_time).total_seconds()
         
         try:
-            # Stop stream
-            self._is_recording = False
-            
             if self._stream:
                 self._stream.stop()
                 self._stream.close()
@@ -224,9 +224,14 @@ class AudioRecorder:
             if len(audio) < self.SAMPLE_RATE * 0.5:
                 return None
             
-            # Save to file
+            # Save to file (restrict to owner-only — audio is private)
             audio_path = get_temp_audio_path()
             sf.write(audio_path, audio, self.SAMPLE_RATE)
+            try:
+                import os as _os
+                _os.chmod(audio_path, 0o600)
+            except OSError:
+                pass
             
             # Notify callbacks
             for callback in self._on_recording_stop:
